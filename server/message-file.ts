@@ -8,6 +8,7 @@ import { basename, extname, isAbsolute, posix, relative, resolve, sep, win32 } f
 import { fileURLToPath } from "node:url";
 
 import { fromMarkdown } from "mdast-util-from-markdown";
+import type { Message } from "./store.ts";
 
 export const MESSAGE_FILE_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -223,6 +224,31 @@ export function messageReferencesFile(text: string, requested: string): boolean 
     }
   }
   return false;
+}
+
+/** A coordinator may repeat a file link shared by a peer in this conversation.
+ * Only authors of the exact link on this message's ancestor branch contribute
+ * workspaces; other files, later replies and sibling branches grant nothing. */
+export function messageFileSourceBotIds(
+  messages: readonly Pick<Message, "id" | "parentId" | "role" | "kind" | "text" | "from">[],
+  messageId: string,
+  requested: string,
+  directBotId?: string,
+): string[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  const authors = new Set<string>();
+  const visited = new Set<string>();
+  let current = byId.get(messageId);
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    if (current.role === "bot" && current.kind === "text" && current.text
+      && messageReferencesFile(current.text, requested)) {
+      const author = current.from?.botId ?? directBotId;
+      if (author) authors.add(author);
+    }
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return [...authors];
 }
 
 /** Decode exactly the entity spellings emitted by the composer. A single
