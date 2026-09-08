@@ -21,7 +21,7 @@ function setup() {
   dirs.push(dir);
   const file = join(dir, "push.json");
   const live = new Set(["session-1", "session-2"]);
-  const sender = vi.fn(async () => ({ statusCode: 201, body: "", headers: {} }));
+  const sender = vi.fn<NonNullable<ConstructorParameters<typeof WebPushRegistry>[0]["sender"]>>(async () => ({ statusCode: 201, body: "", headers: {} }));
   const registry = new WebPushRegistry({ file, isLive: (id) => live.has(id), sender });
   return { file, live, sender, registry };
 }
@@ -38,9 +38,9 @@ describe("paired-browser Web Push", () => {
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
     await restored.send(frame);
     expect(sender).toHaveBeenCalledOnce();
-    const [target, payload, options] = sender.mock.calls[0] as unknown as Parameters<typeof webpush.sendNotification>;
+    const [target, payload, options] = sender.mock.calls[0];
     expect(target).toEqual(sub);
-    expect(JSON.parse(payload as string)).toEqual({ title: frame.title, body: frame.body, botId: frame.botId, threadId: frame.threadId });
+    expect(JSON.parse(payload)).toEqual({ title: frame.title, body: frame.body, botId: frame.botId, threadId: frame.threadId });
     // Exercise real encryption/VAPID construction without sending to a vendor.
     const request = webpush.generateRequestDetails(target, payload, options);
     expect(request.headers["Content-Encoding"]).toBe("aes128gcm");
