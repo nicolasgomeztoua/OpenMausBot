@@ -5,6 +5,7 @@ import { requestNotificationPermission } from "@/lib/notify";
 import type { Bot } from "@/state/store";
 import { Switch } from "../SettingsPrimitives";
 import { VoiceSettings } from "../VoiceSettings";
+import { WebPushSettings } from "../WebPushSettings";
 import type { useBotSettingsDerived } from "./useBotSettingsDerived";
 
 export function VoiceSection({
@@ -18,6 +19,7 @@ export function VoiceSection({
 
   return (
     <div className="flex flex-col gap-4">
+      <WebPushSettings />
       <VoiceSettings bot={bot} onPatch={patch} />
 
       <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">

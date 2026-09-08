@@ -68,6 +68,10 @@ await build({
   platform: "node",
   target: "node20",
   format: "esm",
+  // Web Push and its encryption dependencies use CommonJS Node built-ins.
+  // Keep those built-ins available after inlining them into this ESM bundle;
+  // the packaged server still carries no external node_modules.
+  banner: { js: "import { createRequire as __ombCreateRequire } from 'node:module'; const require = __ombCreateRequire(import.meta.url);" },
   outbase: server,
   outdir: join(root, "dist-server"),
   // Written after tsc, replacing its output for these entry points.

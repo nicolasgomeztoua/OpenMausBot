@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { captureNotificationLink } from "./lib/notification-link";
 import { readSessionState, takePairingCodeFromLocation } from "./lib/session";
 import { bootstrapBrand } from "./lib/brand";
 import { applySkin, readSkin } from "./lib/skins";
@@ -12,6 +13,7 @@ import "./styles.css";
 // title, accent) is fetched the same way so a white-labelled deployment never
 // flashes the default name; it waits at most a moment and falls back silently.
 applySkin(readSkin());
+captureNotificationLink();
 
 /** A pairing link lands on /pair. A remote browser without a session lands
  * there too, because every API call would otherwise fail with "pair this

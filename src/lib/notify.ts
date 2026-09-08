@@ -2,6 +2,7 @@
 // The server decides *whether* something is worth an interruption (it owns
 // the per-bot toggle); this only decides how to show it here.
 import type { Notification } from "../../server/notify.ts";
+import { webPushEnabled } from "./web-push";
 
 export type NotifyFrame = Notification;
 
@@ -38,6 +39,9 @@ export function showNotification(
   avatarUrl?: string | null,
   visibleThreadId?: string | null,
 ) {
+  // A subscribed device receives this same frame through its service worker,
+  // even while the page is connected. Showing both creates duplicate alerts.
+  if (webPushEnabled()) return;
   if (typeof Notification === "undefined") return;
   if (document.hasFocus() && visibleThreadId === frame.threadId) return;
 
@@ -51,6 +55,7 @@ export function showNotification(
       body: frame.body,
       ...buildNotificationOptions({ id: frame.botId, avatarUrl }),
     };
-    new Notification(frame.title, options).onclick = open;
+    try { new Notification(frame.title, options).onclick = open; }
+    catch { /* Mobile browsers require service-worker notifications. */ }
   }
 }
