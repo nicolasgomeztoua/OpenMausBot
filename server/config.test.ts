@@ -32,6 +32,17 @@ import { customMcpServers,
 } from "./config.ts";
 
 describe("configuration boundaries", () => {
+  it("requires an explicit boolean to opt into automatic schedule approval", () => {
+    expect(parseStoredConfig({}).routines).toBeUndefined();
+    for (const autoApprove of [true, false]) {
+      expect(parseConfigPatch({ routines: { autoApprove } })).toEqual({ routines: { autoApprove } });
+      expect(parseStoredConfig({ routines: { autoApprove } }).routines?.autoApprove).toBe(autoApprove);
+    }
+    for (const autoApprove of ["true", 1, null]) {
+      expect(() => parseConfigPatch({ routines: { autoApprove } })).toThrow("routines.autoApprove");
+    }
+  });
+
   it("keeps supported stored settings and drops unrelated top-level data", () => {
     expect(
       parseStoredConfig({

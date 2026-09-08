@@ -56,5 +56,6 @@ describe("Settings → General", () => {
     expect(en).toContain("Settings");
     expect(en).toContain("Engines");
     expect(en).toContain("Maximum turn length");
+    expect(en).toContain("Skip schedule approvals");
   });
 });

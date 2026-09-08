@@ -50,6 +50,7 @@ let routinesResponse: unknown = {
   ],
 };
 let lastRoutineRequestBody: any = null;
+let routineRequestResponse: unknown = { requestId: "routine-request-1", summary: "Weekdays at 09:00 (Asia/Kolkata)" };
 let lastProfileRequestBody: any = null;
 let profileRequestResponse: unknown = { requestId: "profile-request-1", summary: "Name → Kiwi" };
 let lastSessionSearchUrl = "";
@@ -188,7 +189,7 @@ beforeAll(async () => {
       req.on("end", () => {
         lastRoutineRequestBody = JSON.parse(data);
         res.writeHead(201, { "content-type": "application/json" });
-        res.end(JSON.stringify({ requestId: "routine-request-1", summary: "Weekdays at 09:00 (Asia/Kolkata)" }));
+        res.end(JSON.stringify(routineRequestResponse));
       });
       return;
     }
@@ -335,7 +336,8 @@ describe("agents-proxy MCP surface", () => {
     expect(create.inputSchema.properties.continuity).toMatchObject({ type: "boolean" });
     expect(create.inputSchema.properties.clear_timeout.type).toBe("boolean");
     expect(schedule.properties.every_minutes).toMatchObject({ minimum: 5, maximum: 1_440 });
-    expect(create.description).toContain("does NOT enable");
+    expect(create.description).toContain("automatic schedule approval");
+    expect(create.description).toContain("if confirmation is pending, end the turn and wait");
   });
 
   it("list_bots renders the roster and authenticates with the shared token", async () => {
@@ -680,6 +682,24 @@ describe("agents-proxy MCP surface", () => {
     expect(query.get("fromBotId")).toBe("bot-asker");
     expect(query.get("fromThreadId")).toBe("thread-asker-routine");
     expect(lastAuth).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("reports applied schedule changes without telling the agent to wait for confirmation", async () => {
+    const previous = routineRequestResponse;
+    routineRequestResponse = { state: "applied", resultId: "routine-auto", summary: "Morning brief" };
+    try {
+      const result = await callTool("propose_routine", {
+        name: "Morning brief", instructions: "Summarize priorities.",
+        schedule: { type: "weekly", time: "09:00", weekdays: ["monday"] },
+      });
+      expect(result.result.content[0].text).toContain("applied automatically");
+      expect(result.result.content[0].text).toContain("routine-auto");
+      expect(result.result.content[0].text).not.toContain("End this turn and wait");
+      const run = await callTool("propose_routine_action", { routine_id: "routine-auto", action: "run_now" });
+      expect(run.result.content[0].text).toContain("the run is queued, not necessarily completed");
+    } finally {
+      routineRequestResponse = previous;
+    }
   });
 
   it("proposes a weekly routine through a confirmation-only request", async () => {

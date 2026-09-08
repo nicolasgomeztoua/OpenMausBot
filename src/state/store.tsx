@@ -353,6 +353,7 @@ export interface ConfigStatus {
   composio: { configured: boolean; mode?: "managed" | "self-hosted" | "unavailable" };
   box: { configured: boolean };
   vps: { configured: boolean; sshAlias: string };
+  routines?: { autoApprove: boolean };
   rooms: { turnTimeoutMinutes: number };
   localVm: { mode: "shared" | "per-bot"; maxInstances: number };
   opencodeGo?: { configured: boolean };
@@ -394,7 +395,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "composio" | "box" | "vps" | "rooms" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "browserEngine" | "browserProfiles"
+  "xai" | "composio" | "box" | "vps" | "routines" | "rooms" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "browserEngine" | "browserProfiles"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -403,6 +404,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     composio: frame.composio,
     box: frame.box,
     vps: frame.vps,
+    routines: frame.routines,
     rooms: frame.rooms,
     localVm: frame.localVm,
     opencodeGo: frame.opencodeGo,

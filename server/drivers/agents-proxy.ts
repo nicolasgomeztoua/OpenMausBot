@@ -386,7 +386,7 @@ const TOOLS = [
   {
     name: "propose_routine",
     description:
-      "Prepare a new routine after the user explicitly asks to schedule recurring or future work. Call list_routines first for relative dates or times so you use its authoritative current time and timezone. This only creates a durable confirmation card; it does NOT enable the routine. Resolve ambiguous dates, times, timezone, destination, or instructions with the user first, and always give one-time schedules an explicit RFC3339 offset. After calling it, end the turn and do not claim the routine exists until the user confirms the card. If the user asks for the routine to run as ANOTHER bot in your section, call list_bots and pass that bot's id as for_bot_id.",
+      "Prepare a new routine after the user explicitly asks to schedule recurring or future work. Call list_routines first for relative dates or times so you use its authoritative current time and timezone. This creates a durable confirmation card, or applies the change immediately if the user has enabled automatic schedule approval. Resolve ambiguous dates, times, timezone, destination, or instructions with the user first, and always give one-time schedules an explicit RFC3339 offset. Follow the tool result: if confirmation is pending, end the turn and wait; only claim the routine exists when the change is applied. If the user asks for the routine to run as ANOTHER bot in your section, call list_bots and pass that bot's id as for_bot_id.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -404,7 +404,7 @@ const TOOLS = [
   {
     name: "propose_routine_action",
     description:
-      "Prepare a user-requested change to one of this bot's existing routines. This only creates a durable confirmation card; it does NOT apply the change. Use list_routines first to get the routine id. After calling it, end the turn and do not claim the action completed until the user confirms the card.",
+      "Prepare a user-requested change to one of this bot's existing routines. This creates a durable confirmation card, or applies the change immediately if the user has enabled automatic schedule approval. Use list_routines first to get the routine id. Follow the tool result: if confirmation is pending, end the turn and wait; only claim completion when the change is applied.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -548,6 +548,11 @@ function routineFields(args: Json): { fields: Json; error?: string } {
 
 function confirmationResult(r: Json, fallback: string, noun = "routine"): { text: string } {
   const summary = typeof r.summary === "string" && r.summary.trim() ? `\n\n${r.summary.trim()}` : "";
+  if (noun === "routine" && r.state === "applied" && typeof r.resultId === "string") {
+    return {
+      text: `The schedule change was applied automatically using the user's schedule approval setting for ${fallback}.${summary}\n\nResult ID: ${r.resultId}. A completed card is visible in chat; no confirmation is needed. For run now, the run is queued, not necessarily completed.`,
+    };
+  }
   return {
     text: `A confirmation card is now visible to the user for ${fallback}.${summary}\n\nThis change has not been applied yet. End this turn and wait for the user to confirm or deny the card; do not claim the ${noun} was created or changed before confirmation.`,
   };
