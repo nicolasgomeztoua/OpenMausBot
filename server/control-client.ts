@@ -30,6 +30,8 @@ export interface ControlClient {
   requestHelp(reason: string): Promise<string | null>;
   /** Close only the unanswered plea opened by this client. */
   expireHelp(requestId: string): Promise<void>;
+  /** Wait for a shared desktop on actual tool use; ordinary chat never calls this. */
+  waitForComputer(signal?: AbortSignal): Promise<ControlState>;
   readonly configured: boolean;
 }
 
@@ -52,12 +54,15 @@ export function createControlClient(options?: {
   let cachedAt = 0;
   let cached: ControlState = DISENGAGED;
 
-  async function read(): Promise<ControlState> {
+  async function read(acquire = false, signal?: AbortSignal): Promise<ControlState & { waiting?: boolean }> {
     try {
-      const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(2_000) });
+      const endpoint = new URL(url);
+      if (acquire) endpoint.searchParams.set("acquire", "1");
+      const timeout = AbortSignal.timeout(2_000);
+      const res = await fetchImpl(endpoint.href, { headers, signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
       if (!res.ok) return UNAVAILABLE;
       const body: any = await res.json().catch(() => null);
-      return { held: body?.held === true, helpOpen: body?.helpOpen === true };
+      return { held: body?.held === true, helpOpen: body?.helpOpen === true, ...(body?.waiting === true ? { waiting: true } : {}) };
     } catch {
       return UNAVAILABLE;
     }
@@ -65,6 +70,36 @@ export function createControlClient(options?: {
 
   return {
     configured,
+    async waitForComputer(signal?: AbortSignal): Promise<ControlState> {
+      if (!configured) return DISENGAGED;
+      try {
+        while (!signal?.aborted) {
+          const state = await read(true, signal);
+          if (state.held || !state.waiting) return state;
+          await new Promise<void>(resolve => {
+            const finish = () => {
+              clearTimeout(timer);
+              signal?.removeEventListener("abort", finish);
+              resolve();
+            };
+            const timer = setTimeout(finish, 500);
+            signal?.addEventListener("abort", finish, { once: true });
+            if (signal?.aborted) finish();
+          });
+        }
+        return UNAVAILABLE;
+      } catch {
+        return UNAVAILABLE;
+      } finally {
+        if (signal?.aborted) {
+          const endpoint = new URL(url);
+          endpoint.searchParams.set("acquire", "1");
+          await fetchImpl(endpoint.href, {
+            method: "DELETE", headers, signal: AbortSignal.timeout(2_000),
+          }).catch(() => {});
+        }
+      }
+    },
     async state(fresh = false): Promise<ControlState> {
       if (!configured) return DISENGAGED;
       const now = Date.now();
