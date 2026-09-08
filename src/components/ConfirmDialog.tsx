@@ -66,7 +66,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6"
+      className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6"
       onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
     >
       <ConfirmDialogCard ref={dialogRef} cancelRef={cancelRef} {...props} />
@@ -100,7 +100,7 @@ export function ConfirmDialogCard({
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-body"
       className={cn(
-        "w-full max-w-[420px] rounded-2xl border bg-panel p-5 shadow-2xl",
+        "max-h-full w-full max-w-[420px] overflow-y-auto rounded-2xl border bg-panel p-5 shadow-2xl",
         danger ? "border-danger/30" : "border-hairline/50",
       )}
     >

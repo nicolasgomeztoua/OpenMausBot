@@ -38,8 +38,8 @@ export function PairPage({ initialCode, reason }: { initialCode: string | null; 
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
-      <form onSubmit={submit} className="w-full max-w-[420px]">
+    <main className="flex h-full overflow-y-auto bg-app px-6 py-6 text-ink">
+      <form onSubmit={submit} className="m-auto w-full max-w-[420px] shrink-0">
         <h1 className="text-[20px] font-semibold">Connect to {environment?.label ?? "this OpenMausBot"}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">
           {environment ? `Version ${environment.version} on ${environment.platform}. ` : ""}

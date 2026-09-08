@@ -5,7 +5,11 @@ import { readSessionState, takePairingCodeFromLocation } from "./lib/session";
 import { bootstrapBrand } from "./lib/brand";
 import { applySkin, readSkin } from "./lib/skins";
 import { PairPage } from "./pair/PairPage";
+import { trackVisualViewport } from "./lib/visual-viewport";
 import "./styles.css";
+
+const stopTrackingViewport = trackVisualViewport();
+if (import.meta.hot) import.meta.hot.dispose(stopTrackingViewport);
 
 // Before the first paint, not inside a component: stamping the skin during
 // render would show one frame of the default palette first. The brand (window

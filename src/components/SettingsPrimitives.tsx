@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, ChevronDown, Copy } from "lucide-react";
 import { cn } from "@/lib/cn";
+
+/** Native selection on phones, with the same readable skin as the dialog. */
+export function SettingsSectionSelect(props: ComponentProps<"select">) {
+  return (
+    <div className="relative md:hidden">
+      <select {...props} className="w-full appearance-none rounded-lg bg-control py-2 pl-3 pr-10 text-ink" />
+      <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-secondary" />
+    </div>
+  );
+}
 
 export function Switch({
   checked,

@@ -221,6 +221,7 @@ function ConversationTaskPicker({
           else setOpen(true);
         }}
         title={switchTitle}
+        aria-expanded={open}
         className={cn(
           "flex max-w-[220px] items-center gap-1.5 rounded-full border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink",
           COMPACT_BUBBLE,
@@ -228,12 +229,12 @@ function ConversationTaskPicker({
       >
         <span className="truncate @max-4xl/chathead:hidden">{current?.title ?? t("task.chip")}</span>
         {/* folded: just the count in the bubble — the title rides the tooltip */}
-        <span className="shrink-0 tabular-nums opacity-60 @max-4xl/chathead:opacity-100">{tasks.length}</span>
+        <span className="min-w-[2ch] shrink-0 text-center tabular-nums opacity-60 @max-4xl/chathead:opacity-100">{tasks.length}</span>
         <ChevronDown size={12} className="shrink-0 @max-4xl/chathead:hidden" />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-1 w-[300px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50">
+        <div className="chat-header-popover absolute right-0 top-full z-40 mt-1 max-h-[calc(var(--app-viewport-height,100dvh)-5rem)] w-[300px] overflow-y-auto rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50">
           <div className="px-2 pb-1 pt-1.5">
             <div className="flex items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-2.5 py-1.5 focus-within:border-accent/60">
               <Search size={13} className="shrink-0 text-ink-secondary" />
@@ -337,7 +338,7 @@ function ConversationTaskPicker({
                       onClick={() => startRename(task)}
                       aria-label={t("task.renameNamed", { title: task.title })}
                       title={t("task.renameTitle")}
-                      className="rounded p-1 text-ink-secondary opacity-0 hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                      className="rounded p-1 text-ink-secondary opacity-0 hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 max-md:p-2 max-md:opacity-100"
                     >
                       <Pencil size={13} />
                     </button>
@@ -348,7 +349,7 @@ function ConversationTaskPicker({
                     disabled={busy && active}
                     aria-label={t("task.deleteAria")}
                     title={t("task.deleteTitle")}
-                    className="rounded p-1 text-ink-secondary opacity-0 hover:bg-raised hover:text-danger group-hover:opacity-100 disabled:opacity-20"
+                    className="rounded p-1 text-ink-secondary opacity-0 hover:bg-raised hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-20 max-md:p-2 max-md:opacity-100"
                   >
                     <Trash2 size={13} />
                   </button>

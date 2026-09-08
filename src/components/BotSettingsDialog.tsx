@@ -6,10 +6,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 
-import { api, useStore, type Bot } from "@/state/store";
+import { api, useStore, type Bot, type BotSettingsSection } from "@/state/store";
 import type { BotOverview } from "@/lib/bot-overview-types";
 import { cn } from "@/lib/cn";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { SettingsSectionSelect } from "./SettingsPrimitives";
 import { BOT_SECTIONS } from "./bot-settings/sections";
 import { useBotSettingsDerived } from "./bot-settings/useBotSettingsDerived";
 import { OverviewSection } from "./bot-settings/OverviewSection";
@@ -238,7 +239,7 @@ export function BotSettingsDialog({ bot }: { bot: Bot }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+      className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 md:p-6"
       onMouseDown={(e) => e.target === e.currentTarget && dispatch({ type: "toggleSettings", open: false })}
     >
       <div
@@ -247,18 +248,25 @@ export function BotSettingsDialog({ bot }: { bot: Bot }) {
         aria-modal="true"
         aria-labelledby="bot-settings-title"
         tabIndex={-1}
-        className="flex h-[min(640px,calc(100vh-3rem))] w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none"
+        className="flex h-[640px] max-h-full w-full max-w-[860px] flex-col overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none md:flex-row"
       >
         {/* section nav */}
-        <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3">
+        <nav className="flex shrink-0 flex-col gap-0.5 border-b border-hairline/40 p-3 md:w-[190px] md:border-b-0 md:border-r">
+          <SettingsSectionSelect
+            aria-label="Settings section"
+            value={section}
+            onChange={(event) => dispatch({ type: "toggleSettings", open: true, section: event.target.value as BotSettingsSection })}
+          >
+            {visibleSections.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+          </SettingsSectionSelect>
           {/* shrink-0 on the two fixed rows: the title has overflow hidden
               (truncate), which lets a flex column shrink it to absorb an
               overflowing section list — the name's top got clipped. The
               list below scrolls instead. */}
-          <div id="bot-settings-title" className="shrink-0 truncate px-2 py-3 text-[15px] font-semibold text-ink">
+          <div id="bot-settings-title" className="shrink-0 truncate px-2 py-3 text-[15px] font-semibold text-ink max-md:sr-only">
             {bot.name}
           </div>
-          <div className="mb-2 mt-1 flex shrink-0 items-center gap-2 rounded-lg bg-control/70 px-2.5 py-2">
+          <div className="mb-2 mt-1 hidden shrink-0 items-center gap-2 rounded-lg bg-control/70 px-2.5 py-2 md:flex">
             <Search size={14} className="shrink-0 text-ink-secondary" />
             <input
               value={query}
@@ -274,7 +282,7 @@ export function BotSettingsDialog({ bot }: { bot: Bot }) {
               className="w-full bg-transparent text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
             />
           </div>
-          <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+          <div className="hidden min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto md:flex">
             {visibleSections.length === 0 && (
               <div className="px-2.5 py-4 text-[12.5px] leading-relaxed text-ink-secondary">
                 Nothing matches “{query.trim()}”
@@ -311,7 +319,7 @@ export function BotSettingsDialog({ bot }: { bot: Bot }) {
               type="button"
               onClick={() => dispatch({ type: "toggleSettings", open: false })}
               aria-label="Close settings"
-              className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+              className="flex size-11 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink md:size-7"
             >
               <X size={18} className="pointer-events-none" />
             </button>

@@ -406,6 +406,97 @@ body,
   height: 100%;
 }
 
+html {
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  --app-bottom-inset: env(safe-area-inset-bottom, 0px);
+}
+
+html[data-keyboard-open] {
+  --app-bottom-inset: 0px;
+}
+
+#root {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--app-viewport-top, 0px);
+  height: var(--app-viewport-height, 100dvh);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    var(--app-bottom-inset) env(safe-area-inset-left, 0px);
+}
+
+/* Dialogs must share the app's visible bounds, including while typing. */
+.viewport-overlay {
+  top: var(--app-viewport-top, 0px);
+  bottom: auto;
+  height: var(--app-viewport-height, 100dvh);
+  padding-top: max(1.5rem, env(safe-area-inset-top, 0px));
+  padding-bottom: max(1.5rem, var(--app-bottom-inset));
+}
+
+@media (max-width: 767px) {
+  .viewport-overlay {
+    padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+    padding-bottom: max(0.75rem, var(--app-bottom-inset));
+  }
+  /* iOS zooms focused fields below 16px, changing both the layout and the
+     keyboard offset. Keep pinch zoom available for accessibility. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+
+  .chat-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem 0.5rem;
+  }
+
+  .chat-header-identity {
+    padding-left: 2rem;
+  }
+
+  .chat-header-actions {
+    min-width: 0;
+    gap: 0.25rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .chat-header-actions > * {
+    flex-shrink: 0;
+  }
+
+  .chat-header-actions button,
+  .composer-pill button {
+    min-height: 40px;
+    min-width: 40px;
+  }
+
+  .chat-header-popover {
+    position: fixed;
+    inset-inline: max(0.75rem, env(safe-area-inset-left, 0px)) max(0.75rem, env(safe-area-inset-right, 0px));
+    top: calc(var(--app-viewport-top, 0px) + env(safe-area-inset-top, 0px) + 7rem);
+    width: auto;
+    max-height: calc(var(--app-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 8rem);
+    overflow-y: auto;
+  }
+
+  .mobile-menu {
+    position: fixed;
+    inset-inline: max(0.75rem, env(safe-area-inset-left, 0px)) max(0.75rem, env(safe-area-inset-right, 0px));
+    top: calc(var(--app-viewport-top, 0px) + env(safe-area-inset-top, 0px) + 1rem);
+    bottom: auto;
+    width: auto;
+    min-width: 0;
+    max-height: calc(var(--app-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 2rem);
+    overflow-y: auto;
+  }
+}
+
 body {
   background-color: var(--color-app);
   color: var(--color-ink);

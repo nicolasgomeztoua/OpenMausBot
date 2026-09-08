@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   CalendarDays,
@@ -511,8 +512,8 @@ function EventEditor({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-3 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={existingRoutine || existingCall ? "Edit calendar event" : "Create calendar event"} tabIndex={-1} className="max-h-[94vh] w-full max-w-[760px] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
+    <div className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-3 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={existingRoutine || existingCall ? "Edit calendar event" : "Create calendar event"} tabIndex={-1} className="max-h-full w-full max-w-[760px] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
         <div className="sticky top-0 z-20 flex items-center justify-between border-b border-hairline/40 bg-panel/95 px-5 py-3.5 backdrop-blur">
           <div className="text-[15px] font-semibold text-ink">{existingRoutine || existingCall ? "Edit event" : "New event"}</div>
           <button onClick={onClose} className="rounded-full p-2 text-ink-secondary hover:bg-raised hover:text-ink" aria-label="Close"><X size={18} /></button>
@@ -785,27 +786,35 @@ function QuickComposer({
   const durationMinutes = kind === "routine" ? 30 : seed.durationMinutes;
 
   useLayoutEffect(() => {
-    if (!seed.anchor) {
-      setDialogPosition(null);
-      return;
-    }
     const dialog = dialogRef.current;
     if (!dialog) return;
     const place = () => {
       const gap = 12;
       const rect = dialog.getBoundingClientRect();
-      let left = seed.anchor!.x + gap;
-      let top = seed.anchor!.y + gap;
-      if (left + rect.width > window.innerWidth - gap) left = seed.anchor!.x - rect.width - gap;
-      if (top + rect.height > window.innerHeight - gap) top = seed.anchor!.y - rect.height - gap;
+      const viewport = window.visualViewport;
+      const viewportTop = viewport?.offsetTop ?? 0;
+      const viewportHeight = viewport?.height ?? window.innerHeight;
+      let left = seed.anchor ? seed.anchor.x + gap : (window.innerWidth - rect.width) / 2;
+      let top = seed.anchor ? seed.anchor.y + gap : viewportTop + (viewportHeight - rect.height) / 2;
+      if (seed.anchor && left + rect.width > window.innerWidth - gap) left = seed.anchor.x - rect.width - gap;
+      if (seed.anchor && top + rect.height > viewportTop + viewportHeight - gap) top = seed.anchor.y - rect.height - gap;
       setDialogPosition({
         left: Math.max(gap, Math.min(left, window.innerWidth - rect.width - gap)),
-        top: Math.max(gap, Math.min(top, window.innerHeight - rect.height - gap)),
+        top: Math.max(viewportTop + gap, Math.min(top, viewportTop + viewportHeight - rect.height - gap)),
       });
     };
     place();
+    const observer = new ResizeObserver(place);
+    observer.observe(dialog);
     window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
+    };
   }, [kind, seed.anchor]);
 
   const save = async () => {
@@ -849,8 +858,8 @@ function QuickComposer({
   };
 
   const valid = Boolean(name.trim() && botIds.length && (kind === "call" || description.trim()));
-  return (
-    <div ref={dialogRef} role="dialog" aria-label="Quick create" style={dialogPosition ?? undefined} className={cn("fixed z-50 max-h-[calc(100vh-24px)] w-[min(430px,calc(100vw-24px))] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl", !dialogPosition && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2")}>
+  return createPortal(
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Quick create" style={dialogPosition ?? undefined} className="fixed z-50 max-h-[calc(var(--app-viewport-height,100dvh)-24px)] w-[min(430px,calc(100vw-24px))] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
       <div className="flex items-center justify-between bg-raised/70 px-4 py-2.5">
         <div className="text-[12px] font-medium text-ink-secondary">New calendar event</div>
         <button onClick={onClose} className="rounded-full p-1.5 text-ink-secondary hover:bg-inset hover:text-ink" aria-label="Close"><X size={16} /></button>
@@ -893,7 +902,8 @@ function QuickComposer({
         <button onClick={() => onMore({ ...seed, kind, botIds, name, description, durationMinutes })} className="rounded-lg px-3 py-2 text-[12px] font-medium text-accent hover:bg-accent/10">More options</button>
         <button onClick={save} disabled={!valid || working} className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-[12px] font-semibold text-white hover:brightness-110 disabled:opacity-40">{working && <Loader2 size={13} className="animate-spin" />}Save</button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1019,7 +1029,7 @@ function CalendarGrid({
   const [dragPreview, setDragPreview] = useState<{ day: number; at: number } | null>(null);
   const today = startOfDay(Date.now());
   const starts = Array.from({ length: days }, (_, index) => addDays(anchor, index));
-  const minDayWidth = days === 7 ? 88 : days === 3 ? 180 : 340;
+  const minDayWidth = days === 7 ? 88 : days === 3 ? 180 : 220;
   const gridTemplateColumns = `64px repeat(${days}, minmax(${minDayWidth}px, 1fr))`;
   const minWidth = 64 + days * minDayWidth;
 
@@ -1221,8 +1231,8 @@ function EventDetails({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 backdrop-blur-[2px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label="Calendar event details" className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
+    <div className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 backdrop-blur-[2px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label="Calendar event details" className="max-h-full w-full max-w-[520px] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
         <div className="flex items-start gap-4 border-b border-hairline/40 px-5 py-4">
           <span className={cn("mt-1 size-4 shrink-0 rounded", isCall ? "bg-[#6d7cff]" : "bg-accent")} />
           <div className="min-w-0 flex-1">
@@ -1299,8 +1309,8 @@ function PausedList({
 }) {
   const { dispatch } = useStore();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label="Paused routines" className="w-full max-w-[520px] rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
+    <div className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label="Paused routines" className="max-h-full w-full max-w-[520px] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
         <div className="flex items-center justify-between border-b border-hairline/40 px-5 py-4"><div><div className="text-[16px] font-semibold text-ink">Paused routines</div><div className="mt-0.5 text-[11.5px] text-ink-secondary">History is kept; no new tasks will run.</div></div><button onClick={onClose} className="rounded-full p-2 text-ink-secondary hover:bg-raised"><X size={17} /></button></div>
         <div className="max-h-[55vh] space-y-1 overflow-y-auto p-3">
           {routines.map((routine) => {
@@ -1357,7 +1367,7 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const newMenuRef = useRef<HTMLDetailsElement>(null);
   const [section, setSection] = useState<"calendar" | "webhooks">("calendar");
-  const [viewDays, setViewDays] = useState<1 | 3 | 7>(7);
+  const [viewDays, setViewDays] = useState<1 | 3 | 7>(() => window.matchMedia("(max-width: 767px)").matches ? 1 : 7);
   const [anchor, setAnchor] = useState(() => startOfDay(Date.now()));
   const [botFilter, setBotFilter] = useState("all");
   const [calls, setCalls] = useState<CalendarCall[]>([]);
@@ -1531,7 +1541,7 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
             <button onClick={goToday} className="rounded-md px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-raised">Today</button>
             <button onClick={() => setAnchor((current) => addDays(current, viewDays))} className="rounded-md p-2 text-ink-secondary hover:bg-raised hover:text-ink" aria-label="Next dates"><ChevronRight size={16} /></button>
           </div>
-          <div className="min-w-[220px] px-2 text-[15px] font-medium text-ink">{calendarRangeLabel(rangeStart, viewDays)}</div>
+          <div className="px-2 text-[15px] font-medium tabular-nums text-ink md:min-w-[220px]">{calendarRangeLabel(rangeStart, viewDays)}</div>
           <div className="ml-auto flex items-center gap-2">
             {running > 0 && <span className="hidden items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1.5 text-[10.5px] text-accent sm:flex"><Loader2 size={11} className="animate-spin" />{running} active</span>}
             {unseenFailures > 0 && <span className="hidden items-center gap-1.5 rounded-full bg-danger/10 px-2.5 py-1.5 text-[10.5px] text-danger sm:flex"><CircleAlert size={11} />{unseenFailures}</span>}
