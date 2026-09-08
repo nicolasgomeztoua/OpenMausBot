@@ -58,6 +58,7 @@ import {
   messageFileDownloadName,
   messageAttachmentName,
   messageFileRoots,
+  messageFileSourceBotIds,
   messageImageTargetAt,
   messageReferencesFile,
   openMessageFile,
@@ -9107,7 +9108,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const group = directBot ? undefined : store.groupByThread(threadId);
       if (!directBot && !group) return json(res, 404, { error: "no such conversation" });
 
-      const message = store.messagesFor(threadId).find((candidate) => candidate.id === m![2]);
+      const messages = store.messagesFor(threadId);
+      const message = messages.find((candidate) => candidate.id === m![2]);
       if (!message) return json(res, 404, { error: "no such message" });
       if (message.kind !== "text" || !message.text) {
         return json(res, 403, { error: "that message does not share this file" });
@@ -9134,7 +9136,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!messageReferencesFile(message.text, href)) {
           return json(res, 403, { error: "that bot message does not link to this file" });
         }
-        const senderId = directBot?.id ?? message.from?.botId;
+        const senderId = message.from?.botId ?? directBot?.id;
         // The persisted bot-role message is the author record. Membership is
         // intentionally not consulted: removing a bot must not break files it
         // already shared in channel history.
@@ -9143,7 +9145,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         let pinnedCwd: string | null | undefined;
         let configuredCwd: string | undefined;
-        if (directBot) {
+        if (directBot && senderId === directBot.id) {
           pinnedCwd = store.taskByThread(directBot.id, threadId)?.cwd;
           configuredCwd = directBot.cwd;
         } else if (group) {
@@ -9158,6 +9160,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           pinnedCwd,
           configuredCwd,
         });
+        roots.push(...messageFileSourceBotIds(messages, message.id, href, directBot?.id).map(workspaceDir));
       }
 
       const file = await openMessageFile(href, roots);

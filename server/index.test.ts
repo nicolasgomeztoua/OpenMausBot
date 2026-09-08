@@ -341,6 +341,11 @@ beforeAll(async () => {
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Packaged OpenMausBot</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body { color: white; }");
+  writeFileSync(join(home, ".openmausbot", "bots.json"), JSON.stringify([{
+    id: "test-file-coordinator", threadId: "test-file-coordinator-thread", name: "File coordinator",
+    title: "", description: "", notifications: true, color: "blue", unread: false,
+    modelSelection: { instanceId: "ghost", model: "fixture" }, resumeCursors: {}, createdAt: 1,
+  }]));
   writeFileSync(
     join(home, ".openmausbot", "config.json"),
     JSON.stringify({
@@ -435,6 +440,20 @@ beforeAll(async () => {
   writeFileSync(linkedFile, "# Phone-ready report\n");
   writeFileSync(linkedImage, "png preview bytes");
   writeFileSync(userAttachment, "%PDF shared from the phone\n", { mode: 0o600 });
+  const unsharedFile = join(linkedWorkspace, "unshared.md");
+  writeFileSync(unsharedFile, "Not shared by the peer\n");
+  const peer = { botId: "test-bot-a", name: "Test bot A", color: "purple" };
+  writeFileSync(join(home, ".openmausbot", "messages-test-file-coordinator-thread.json"), JSON.stringify({
+    activeLeafId: "coordinator-unshared",
+    messages: [
+      { id: "delegated-file", at: 1, parentId: null, role: "bot", kind: "text", from: peer,
+        text: `[Peer report](<${pathToFileURL(linkedFile).href}>)` },
+      { id: "coordinator-file", at: 2, parentId: "delegated-file", role: "bot", kind: "text",
+        text: `[Download the report](<${pathToFileURL(linkedFile).href}>)` },
+      { id: "coordinator-unshared", at: 3, parentId: "coordinator-file", role: "bot", kind: "text",
+        text: `[Unshared](<${pathToFileURL(unsharedFile).href}>)` },
+    ],
+  }));
   writeFileSync(
     join(home, ".openmausbot", "messages-test-linked-file-room-thread.json"),
     JSON.stringify({
@@ -8030,6 +8049,26 @@ describe("message pages", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ path: linkedFile }),
     })).status).toBe(404);
+  });
+
+  it("downloads delegated and repeated peer links in a direct chat without granting other peer files", async () => {
+    const threadId = "test-file-coordinator-thread";
+    const workspace = join(home, ".openmausbot", "workspaces", "test-bot-a");
+    for (const messageId of ["delegated-file", "coordinator-file"]) {
+      const response = await fetch(`${BASE}/api/threads/${threadId}/messages/${messageId}/file`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: join(workspace, "phone report.md") }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("# Phone-ready report\n");
+      expect(response.headers.get("content-disposition")).toContain("phone%20report.md");
+    }
+    const response = await api("POST", `/api/threads/${threadId}/messages/coordinator-unshared/file`, {
+      path: join(workspace, "unshared.md"),
+    });
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain("outside this conversation's workspace");
   });
 
   it("downloads an image rendered by the exact stored bot message", async () => {

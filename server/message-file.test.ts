@@ -10,6 +10,7 @@ import {
   messageFileDownloadName,
   messageAttachmentName,
   messageFileRoots,
+  messageFileSourceBotIds,
   messageImageTargetAt,
   messageReferencesAttachment,
   messageReferencesFile,
@@ -30,6 +31,43 @@ beforeEach(() => {
 afterAll(() => rmSync(suite, { recursive: true, force: true }));
 
 describe("message-linked files", () => {
+  it("uses a delegated author and preserves its exact file grant when repeated", () => {
+    const peer = { botId: "peer", name: "Peer", color: "blue" as const };
+    const messages = [
+      { id: "shared", parentId: null, role: "bot" as const, kind: "text" as const,
+        text: "[Report](file:///app/peer/report%20one.md)", from: peer },
+      { id: "summary", parentId: "shared", role: "bot" as const, kind: "text" as const,
+        text: "[Download](/app/peer/report%20one.md)" },
+    ];
+    expect(messageFileSourceBotIds(messages, "shared", "/app/peer/report one.md", "owner"))
+      .toEqual(["peer"]);
+    expect(messageFileSourceBotIds(messages, "summary", "/app/peer/report one.md", "owner"))
+      .toEqual(["owner", "peer"]);
+    expect(messageFileSourceBotIds(messages, "summary", "/app/peer/other.md", "owner"))
+      .toEqual([]);
+    expect(messageFileSourceBotIds(messages, "summary", "/app/peer/report one.md"))
+      .toEqual(["peer"]);
+  });
+
+  it("does not inherit grants from user text, prose, later replies or sibling branches", () => {
+    const from = { botId: "peer", name: "Peer", color: "blue" as const };
+    const link = "[Report](/app/peer/report.md)";
+    const messages = [
+      { id: "user", parentId: null, role: "user" as const, kind: "text" as const, text: link, from },
+      { id: "prose", parentId: "user", role: "bot" as const, kind: "text" as const,
+        text: "Saved /app/peer/report.md", from },
+      { id: "summary", parentId: "prose", role: "bot" as const, kind: "text" as const, text: link },
+      { id: "sibling", parentId: "prose", role: "bot" as const, kind: "text" as const, text: link, from },
+      { id: "later", parentId: "summary", role: "bot" as const, kind: "text" as const, text: link, from },
+    ];
+    expect(messageFileSourceBotIds(messages, "summary", "/app/peer/report.md", "owner"))
+      .toEqual(["owner"]);
+    // Malformed imported history must also terminate rather than loop.
+    messages[1]!.parentId = "summary";
+    expect(messageFileSourceBotIds(messages, "summary", "/app/peer/report.md", "owner"))
+      .toEqual(["owner"]);
+  });
+
   it("resolves a Markdown image from an opaque source offset", () => {
     const markdown = [
       "See this:",
