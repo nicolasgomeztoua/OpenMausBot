@@ -31,6 +31,8 @@ import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget } from "@/lib/notify";
+import { clearNotificationLink, pendingNotificationTarget } from "@/lib/notification-link";
+import { restoreWebPush } from "@/lib/web-push";
 import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
@@ -2326,6 +2328,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [botPatchQueue]);
 
   // ── initial load + SSE fold ──────────────────────────────────────────
+  useEffect(() => {
+    if (!state.connected || state.bots.length === 0) return;
+    const open = () => {
+      const target = pendingNotificationTarget();
+      if (!target) return;
+      clearNotificationLink();
+      openNotificationTarget(dispatch, target, stateRef.current);
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, [dispatch, state.connected, state.bots.length, state.groups.length]);
+
+  useEffect(() => { if (state.connected) void restoreWebPush(); }, [state.connected]);
+
   useEffect(() => {
     let alive = true;
     type PeripheralKey = "instances" | "config" | "routines" | "webhooks";

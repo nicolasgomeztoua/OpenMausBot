@@ -17,6 +17,7 @@ import { CompanionSection } from "./CompanionSection";
 import { RemoteComputerSection } from "./RemoteComputerSection";
 import { Card, SettingsSectionSelect, Switch } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
+import { WebPushSettings } from "./WebPushSettings";
 import { SkinPicker } from "./SkinPicker";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
@@ -678,6 +679,7 @@ export function SettingsModal() {
                 <UpdatesRow />
                 <DiagnosticsRow />
                 <AnalyticsRow />
+                <WebPushSettings />
               </>
             )}
 

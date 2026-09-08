@@ -124,6 +124,7 @@ import { MAX_REMOTE_COMMAND_LENGTH } from "./remote-computer.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { blockedTarget, buildNotification, type Notification } from "./notify.ts";
+import { WebPushRegistry } from "./web-push.ts";
 import {
   isEffortLevel,
   type ModelSelection,
@@ -354,6 +355,7 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".json": "application/json",
+  ".webmanifest": "application/manifest+json",
   ".woff2": "font/woff2",
 };
 
@@ -381,6 +383,11 @@ process.once("exit", releaseDataDirLeaseAtExit);
 // for this server, the paired sessions, and the cookie the served UI uses.
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
 const sessions = new SessionRegistry({ file: join(DATA_DIR, "sessions.json") });
+const webPush = new WebPushRegistry({ file: join(DATA_DIR, "web-push.json"), isLive: (id) => sessions.isLive(id) });
+sessions.onSessionRevoked((id) => {
+  try { webPush.unsubscribe(id); }
+  catch { console.warn("[web-push] Could not persist subscription removal."); }
+});
 const SESSION_COOKIE = sessionCookieName(PORT, ENVIRONMENT_ID);
 const DESKTOP_MANAGED = process.env.OMB_DESKTOP_PARENT === "1";
 // Empty is deliberately a deny-all bootstrap state. Only Electron's private
@@ -2238,12 +2245,15 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 // can carry what the bot actually said
 const lastReply = new Map<string, string>();
 
-/** Put a notification on the wire. Clients decide what to do with it — a
- * desktop notification now, a push to a paired phone later. */
+/** Share the same interruption policy with connected clients and subscribed
+ * browsers, including when the browser app is closed. */
 function notify(notification: Notification | null) {
   // nested rather than spread — the frame's own `kind` names the frame,
   // exactly like {kind:"message", message} and {kind:"bot", bot}
-  if (notification) broadcast({ kind: "notify", notification });
+  if (notification) {
+    broadcast({ kind: "notify", notification });
+    void webPush.send(notification).catch(() => console.warn("[web-push] Could not deliver notifications."));
+  }
 }
 
 // Group threads: the fold needs to know WHO is talking — the turn engine
@@ -7468,7 +7478,7 @@ function serveStatic(res: ServerResponse, path: string): boolean {
   const file = join(STATIC_DIR, safe);
   try {
     const data = readFileSync(file);
-    res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+    res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", ...(path === "/sw.js" ? { "cache-control": "no-cache" } : {}) });
     res.end(data);
     return true;
   } catch {
@@ -7607,6 +7617,24 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;
+
+    // Each paired browser manages only its own subscriptions. The existing
+    // session/origin gate above also protects these requests from CSRF.
+    if (path === "/api/notifications/push" && ["GET", "POST", "DELETE"].includes(method)) {
+      if (auth.kind !== "session") return json(res, 400, { error: "Pair this browser before enabling background notifications." });
+      try {
+        if (method === "GET") return json(res, 200, { publicKey: webPush.publicKey() });
+        const body = await readBody(req, 4096);
+        if (method === "POST") webPush.subscribe(auth.session.id, body);
+        else {
+          if (typeof body?.endpoint !== "string") return json(res, 400, { error: "A subscription endpoint is required." });
+          webPush.unsubscribe(auth.session.id, body.endpoint);
+        }
+        return json(res, 200, { ok: true });
+      } catch {
+        return json(res, 400, { error: "Could not save this browser's notification subscription. Check the subscription and try again." });
+      }
+    }
 
     // ── sessions: who am I, tickets, pairing and revocation ─────────────
     if (method === "GET" && path === "/api/auth/session") {

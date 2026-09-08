@@ -56,6 +56,13 @@ describe("desktop notifications", () => {
     expect(notices[0]).toMatchObject({ title: frame.title, options: { body: frame.body, tag: `openmausbot:${frame.botId}` } });
   });
 
+  it("leaves an enabled device's alert to Web Push without duplicating it over SSE", () => {
+    const { notices } = installNotification("granted");
+    vi.stubGlobal("localStorage", { getItem: () => "1" });
+    showNotification(frame, vi.fn());
+    expect(notices).toHaveLength(0);
+  });
+
   it("stays quiet only when the exact target thread is already visible", () => {
     const { notices } = installNotification("granted", true);
 
