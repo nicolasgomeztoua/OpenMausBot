@@ -13,6 +13,7 @@ import {
   type RoutineRequestMessage,
   type RoutineRequestOptionCard,
   type RoutineRequestStore,
+  type RoutineRequestServiceOptions,
   type RoutineToolDefinitionInput,
 } from "./routine-requests.ts";
 import { RoutineManager } from "./routines.ts";
@@ -61,6 +62,7 @@ function harness(
     botId: string,
     threadId: string,
   ) => { ok: true } | { ok: false; status: number; error: string },
+  autoApprove?: RoutineRequestServiceOptions["autoApprove"],
 ) {
   const clock = { now: start };
   const dir = mkdtempSync(join(tmpdir(), "omb-routine-request-"));
@@ -80,6 +82,7 @@ function harness(
     timeZone: () => "Asia/Kolkata",
     cloudReady,
     canPersist,
+    autoApprove,
   });
   return { clock, routines, service, store };
 }
@@ -108,6 +111,70 @@ function cardFingerprint(card: RoutineRequestOptionCard, messageId: string): str
 }
 
 describe("RoutineRequestService", () => {
+  it("automatically applies schedule changes, keeps settled cards, and resumes asking when disabled", async () => {
+    let enabled = true;
+    const { service, store, routines, clock } = harness(undefined, undefined, undefined, () => enabled);
+    const create = await service.propose({ botId: "bot-a", threadId: "thread-a", proposal: createProposal() });
+    expect(create.state).toBe("applied");
+    const routineId = create.resultId!;
+    expect(routines.listRoutines()).toHaveLength(1);
+    for (const action of ["update", "pause", "resume", "run_now", "delete"] as const) {
+      clock.now += 1;
+      const proposal = action === "update"
+        ? { action, routineId, changes: { name: "Updated brief" } }
+        : { action, routineId };
+      const result = await service.propose({ botId: "bot-a", threadId: "thread-a", proposal });
+      expect(result.state).toBe("applied");
+      if (action === "update") expect(routines.listRoutines()[0]!.name).toBe("Updated brief");
+      if (action === "pause") expect(routines.listRoutines()[0]!.enabled).toBe(false);
+      if (action === "resume") expect(routines.listRoutines()[0]!.enabled).toBe(true);
+      if (action === "run_now") expect(routines.listRuns()).toHaveLength(1);
+      expect(service.resolve({ botId: "bot-a", threadId: "thread-a", requestId: result.requestId, behavior: "allow" }))
+        .toMatchObject({ state: "already_settled" });
+    }
+    expect(routines.listRoutines()).toHaveLength(0);
+    expect(store.messagesFor("thread-a")).toHaveLength(6);
+    for (const message of store.messagesFor("thread-a")) {
+      expect(message.card).toMatchObject({ answered: "allow", routineRequest: { appliedAt: expect.any(Number) } });
+    }
+    enabled = false;
+    const pending = await service.propose({ botId: "bot-a", threadId: "thread-a", proposal: createProposal() });
+    expect(pending.state).toBe("pending");
+    expect(routines.listRoutines()).toHaveLength(0);
+    enabled = true;
+    expect(store.messagesFor("thread-a").at(-1)!.card!.answered).toBeUndefined();
+  });
+
+  it("reads automatic approval after cloud readiness and preserves turn authorization", async () => {
+    let enabled = true;
+    const { service, store, routines } = harness(undefined, async () => {
+      enabled = false;
+      return { ready: true };
+    }, undefined, () => enabled);
+    const proposed = await service.propose({
+      botId: "bot-a", threadId: "thread-a", proposal: createProposal({ runOn: "cloud" }),
+    });
+    expect(proposed.state).toBe("pending");
+    enabled = true;
+    await expect(service.propose({
+      botId: "bot-a", threadId: "thread-a", proposal: createProposal(), canCommit: () => false,
+    })).rejects.toThrow("requesting turn ended");
+    expect(routines.listRoutines()).toHaveLength(0);
+    expect(store.messagesFor("thread-a")).toHaveLength(1);
+  });
+
+  it("still rejects unavailable cloud execution and invalid schedules with automatic approval", async () => {
+    const { service, routines, store } = harness(undefined, async () => ({ ready: false }), undefined, () => true);
+    await expect(service.propose({
+      botId: "bot-a", threadId: "thread-a", proposal: createProposal({ runOn: "cloud" }),
+    })).rejects.toThrow("Cloud execution is not configured");
+    await expect(service.propose({
+      botId: "bot-a", threadId: "thread-a", proposal: createProposal({ schedule: { type: "interval", everyMinutes: 1 } }),
+    })).rejects.toThrow("everyMinutes");
+    expect(routines.listRoutines()).toHaveLength(0);
+    expect(store.messagesFor("thread-a")).toHaveLength(0);
+  });
+
   it("normalizes weekly input, scrubs hidden payload text, and creates a durable confirmation card", async () => {
     const { service, store, routines } = harness();
     const secret = "sk-proj-abcdefghijklmnopqrstuv";

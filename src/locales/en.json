@@ -1358,5 +1358,10 @@
   "mcp.probe.connected": "Connected",
   "mcp.probe.toolsOne": "· 1 tool: {names}",
   "mcp.probe.toolsMany": "· {count} tools: {names}",
-  "mcp.probe.noTools": "· no tools advertised"
+  "mcp.probe.noTools": "· no tools advertised",
+  "settings.schedules.title": "Schedule approvals",
+  "settings.schedules.subtitle": "Choose whether schedule changes need your confirmation.",
+  "settings.schedules.skip": "Skip schedule approvals",
+  "settings.schedules.detail": "Let all bots create, update, pause, resume, run, and delete routines without asking. Changes still appear in chat. Tool approvals during scheduled runs follow each bot’s permissions. Existing pending cards still need a decision.",
+  "settings.schedules.error": "Could not save schedule approval setting."
 }

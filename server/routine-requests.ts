@@ -205,6 +205,8 @@ export interface RoutineRequestServiceOptions {
   timeZone?: () => string;
   /** Harness-owned readiness check for proposals that would execute in cloud. */
   cloudReady?: () => Promise<{ ready: boolean; reason?: string }>;
+  /** Read the current user preference after asynchronous readiness checks. */
+  autoApprove?: () => boolean;
   /** Revalidates conversation ownership and capacity synchronously, directly
    * before the card append. This closes races across an async cloud probe. */
   canPersist?: (
@@ -230,6 +232,8 @@ export interface ProposeRoutineRequestArgs {
 }
 
 export interface RoutineProposalResult {
+  state: "pending" | "applied";
+  resultId?: string;
   requestId: string;
   messageId: string;
   title: string;
@@ -720,6 +724,7 @@ export class RoutineRequestService {
   private readonly timeZone: () => string;
   private readonly cloudReady?: () => Promise<{ ready: boolean; reason?: string }>;
   private readonly canPersist?: RoutineRequestServiceOptions["canPersist"];
+  private readonly autoApprove?: RoutineRequestServiceOptions["autoApprove"];
   private readonly validateTarget?: RoutineRequestServiceOptions["validateTarget"];
 
   constructor(options: RoutineRequestServiceOptions) {
@@ -729,6 +734,7 @@ export class RoutineRequestService {
     this.timeZone = options.timeZone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     this.cloudReady = options.cloudReady;
     this.canPersist = options.canPersist;
+    this.autoApprove = options.autoApprove;
     this.validateTarget = options.validateTarget;
   }
 
@@ -786,13 +792,30 @@ export class RoutineRequestService {
       throw new RoutineRequestError("The requesting turn ended before this proposal could be saved", 401);
     }
     const message = this.store.appendMessage(threadId, messageInput);
+    let resultId: string | undefined;
+    if (this.autoApprove?.() === true) {
+      // Reuse the same authorization, durable receipt and recovery path as
+      // an explicit confirmation. There is no await between append and apply.
+      const resolved = this.resolve({ botId, threadId, requestId, behavior: "allow" });
+      if (!resolved.claimed || resolved.state !== "applied") {
+        throw new RoutineRequestError(
+          resolved.claimed && resolved.state === "invalid" ? resolved.error : "The routine change could not be applied",
+          resolved.claimed && resolved.state === "invalid" ? resolved.status : 409,
+        );
+      }
+      resultId = resolved.resultId;
+    }
     return {
+      state: resultId === undefined ? "pending" : "applied",
+      ...(resultId === undefined ? {} : { resultId }),
       requestId,
       messageId: message.id,
       title: copy.title,
       summary: copy.summary,
       detail: copy.detail,
-      nextRunAt: copy.nextRunAt,
+      nextRunAt: resultId !== undefined && operation.action !== "run_now"
+        ? this.routines.listRoutines().find((routine) => routine.id === resultId)?.nextRunAt ?? null
+        : copy.nextRunAt,
       timeZone,
     };
   }

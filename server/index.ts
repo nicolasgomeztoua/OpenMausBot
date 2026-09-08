@@ -4941,6 +4941,7 @@ const routineRequests = new RoutineRequestService({
   store,
   routines,
   cloudReady: cloudRoutineReadiness,
+  autoApprove: () => cfg.routines?.autoApprove === true,
   canPersist: proposalPersistence,
   // Cross-bot routines: the confirmation card can sit open indefinitely, so
   // the target is re-authorized when the user confirms, not just at proposal.
@@ -7564,6 +7565,7 @@ function configStatus() {
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
     // not a secret — the settings picker shows it; "" = follow the system
     language: cfg.language ?? "",
+    routines: { autoApprove: cfg.routines?.autoApprove === true },
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     localVm: {
       mode: localVmMode(cfg),
@@ -8112,7 +8114,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // Audit what the human was actually shown, not the shorter tool
           // response returned to the model.
           summary: proposedCard?.subtitle ?? proposed.summary,
-          decision: "card-shown",
+          decision: proposed.state === "applied" ? "auto-approved" : "card-shown",
           source: "routine",
         });
         return json(res, 201, proposed);
@@ -12715,7 +12717,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
       }
       // Provider keys change the fleet. Profile, language, voice, VPS, and
-      // room timeout changes do not rebuild it: no driver reads them, and they
+      // schedule approval and room timeout changes do not rebuild it: no driver reads them, and they
       // should not interrupt in-flight turns.
       const reloadKeys = Object.keys(patch).filter(
         (key) =>
@@ -12724,6 +12726,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           key !== "tts" &&
           key !== "imageGen" &&
           key !== "vps" &&
+          key !== "routines" &&
           key !== "rooms" &&
           key !== "localVm" &&
           key !== "features" &&

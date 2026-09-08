@@ -6210,6 +6210,50 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("persists the schedule approval preference and applies new requests only when enabled", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Schedule approval fixture" })).body.bot;
+    let routineId: string | undefined;
+    try {
+      expect((await api("GET", "/api/config")).body.routines).toEqual({ autoApprove: false });
+      expect((await api("PATCH", "/api/config", { routines: { autoApprove: "yes" } })).status).toBe(400);
+      const token = await mintTestCapability(BASE, bot.id, bot.threadId);
+      const propose = () => fetch(`${BASE}/api/internal/routine-requests`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ fromBotId: bot.id, fromThreadId: bot.threadId, action: "create", routine: {
+          name: "Automatic brief", instructions: "Summarize priorities.",
+          schedule: { type: "interval", everyMinutes: 1440 },
+        } }),
+      });
+      const pending = await propose();
+      expect(pending.status).toBe(201);
+      const resultSchema = z.object({
+        state: z.enum(["pending", "applied"]), messageId: z.string(), resultId: z.string().optional(),
+      });
+      const pendingBody = resultSchema.parse(await pending.json());
+      expect(pendingBody.state).toBe("pending");
+      const saved = await api("PATCH", "/api/config", { routines: { autoApprove: true } });
+      expect(saved.status).toBe(200);
+      expect(saved.body.routines).toEqual({ autoApprove: true });
+      expect(JSON.parse(readFileSync(join(home, ".openmausbot", "config.json"), "utf8")).routines).toEqual({ autoApprove: true });
+      const applied = await propose();
+      expect(applied.status).toBe(201);
+      const result = resultSchema.parse(await applied.json());
+      expect(result.state).toBe("applied");
+      routineId = result.resultId;
+      const current = (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+      expect(current.messages.find((message: { id: string }) => message.id === result.messageId).card)
+        .toMatchObject({ answered: "allow", routineRequest: { resultId: routineId } });
+      expect(current.messages.find((message: { id: string }) => message.id === pendingBody.messageId).card.answered).toBeUndefined();
+      await api("PATCH", "/api/config", { routines: { autoApprove: false } });
+      expect(resultSchema.parse(await (await propose()).json()).state).toBe("pending");
+    } finally {
+      await api("PATCH", "/api/config", { routines: { autoApprove: false } });
+      if (routineId) await api("DELETE", `/api/routines/${routineId}`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("keeps chat-created routines inert until their durable card is confirmed", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     let routineId = "";
