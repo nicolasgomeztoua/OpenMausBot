@@ -663,7 +663,7 @@ export function Composer({
           <div
             role="listbox"
             aria-label={t("composer.commands.aria")}
-            className="absolute bottom-full left-2 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
+            className="absolute bottom-full left-2 z-20 mb-2 max-h-[40dvh] w-80 max-w-[calc(100%-1rem)] overflow-y-auto rounded-xl border border-hairline/40 bg-raised shadow-lg"
           >
             <div className="border-b border-hairline/20 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
               {t("composer.commands.title")}
@@ -703,7 +703,7 @@ export function Composer({
           <div
             role="listbox"
             aria-label={t("composer.mention.aria")}
-            className="absolute bottom-full left-2 z-20 mb-2 w-72 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg"
+            className="absolute bottom-full left-2 z-20 mb-2 max-h-[40dvh] w-72 max-w-[calc(100%-1rem)] overflow-y-auto rounded-xl border border-hairline/40 bg-raised shadow-lg"
           >
             {candidates.map((peer, i) => (
               <button
@@ -792,9 +792,9 @@ export function Composer({
               center — including the corner pockets around the paperclip. */}
           <div
             aria-hidden
-            className="absolute -left-5 -right-5 top-1/2 h-[50vh] bg-app"
+            className="absolute -left-5 -right-5 -bottom-3 top-1/2 bg-app"
           />
-        <div className="relative z-[1] flex items-end gap-1 rounded-3xl bg-raised px-2 py-1.5">
+        <div className="composer-pill relative z-[1] flex items-end gap-1 rounded-3xl bg-raised px-2 py-1.5 max-md:flex-wrap max-md:rounded-2xl">
           <input
             ref={fileInput}
             type="file"
@@ -953,9 +953,9 @@ export function Composer({
                   : t("composer.placeholder.bot", { name: bot?.name ?? "" })
           }
           aria-label={t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
-            className="max-h-[9rem] min-h-6 min-w-0 flex-1 resize-none overflow-y-auto self-center bg-transparent px-1 py-1 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
+            className="max-h-[9rem] min-h-6 min-w-0 flex-1 resize-none overflow-y-auto self-center bg-transparent px-1 py-1 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none max-md:order-first max-md:basis-full"
           />
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 max-md:ml-auto">
           {/* Stop stays a stop. Stop-then-steer is named beside the queued
               message above, where its effect is visible before activation. */}
           {busy && !locked && (

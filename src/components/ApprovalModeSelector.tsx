@@ -160,7 +160,7 @@ export function ApprovalModeSelector({
           role="menu"
           aria-label={t("approvalMode.menuAria", { provider: providerName })}
           className={cn(
-            "absolute z-40 w-[340px] overflow-hidden rounded-2xl border border-hairline/40 bg-raised shadow-2xl",
+            "mobile-menu absolute z-40 w-[340px] overflow-hidden rounded-2xl border border-hairline/40 bg-raised shadow-2xl",
             menuDirection === "up" ? "bottom-full mb-2" : "top-full mt-2",
             align === "right" ? "right-0" : "left-0",
             wide && "w-full min-w-[340px]",

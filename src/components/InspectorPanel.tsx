@@ -181,7 +181,7 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
   const total = lens === "raw" ? (page?.total.native ?? 0) : (page?.total.runtime ?? 0);
 
   return (
-    <aside className="animate-panel-in flex h-full w-[460px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
+    <aside className="animate-panel-in flex h-full w-[460px] max-w-full shrink-0 flex-col border-l border-hairline/40 bg-panel max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40">
       <div className="flex items-center justify-between px-4 py-3">
         <span className="flex items-center gap-2 text-[15px] font-semibold text-ink">
           <Bug size={16} className="text-ink-secondary" /> Inspector
@@ -190,7 +190,7 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
           onClick={() => dispatch({ type: "toggleInspector", open: false })}
           aria-label="Close the Inspector"
           title="Close the Inspector"
-          className="rounded-md p-1 text-ink-secondary hover:bg-raised hover:text-ink"
+          className="flex size-11 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink md:size-7"
         >
           <X size={18} />
         </button>

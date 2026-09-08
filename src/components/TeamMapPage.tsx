@@ -224,7 +224,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
+      className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
       onMouseDown={(event) => event.target === event.currentTarget && requestClose()}
     >
       <div
@@ -233,7 +233,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
         aria-modal="true"
         aria-labelledby="section-context-title"
         tabIndex={-1}
-        className="animate-pop-in flex max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[680px] flex-col overflow-hidden rounded-[24px] border border-hairline/50 bg-panel shadow-2xl shadow-black/50 outline-none"
+        className="animate-pop-in flex max-h-[min(680px,100%)] w-full max-w-[680px] flex-col overflow-hidden rounded-[24px] border border-hairline/50 bg-panel shadow-2xl shadow-black/50 outline-none"
       >
         <header className="flex items-start justify-between gap-4 border-b border-hairline/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-7">
           <div>
@@ -339,8 +339,8 @@ export function TeamMapPage() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-app text-ink">
-      <header className="flex shrink-0 items-center justify-between border-b border-hairline/40 px-7 py-5 max-md:pl-12">
-        <div>
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline/40 px-4 py-5 max-md:pl-12 md:px-7">
+        <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             <Network size={20} className="text-accent" />
             <h1 className="text-[18px] font-semibold">Team map</h1>
@@ -352,7 +352,7 @@ export function TeamMapPage() {
         <button
           onClick={() => void refresh(true)}
           disabled={refreshing}
-          className="rounded-lg border border-hairline/50 bg-card p-2 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-50"
+          className="shrink-0 rounded-lg border border-hairline/50 bg-card p-2 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-50"
           aria-label="Refresh team map"
           title="Refresh"
         >
@@ -360,7 +360,7 @@ export function TeamMapPage() {
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-7">
         {error && <div className="mb-4 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</div>}
 
         <div className="space-y-4">

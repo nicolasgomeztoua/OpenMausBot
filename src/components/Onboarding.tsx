@@ -186,13 +186,13 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const setupEngines = engines.filter((e) => !engineReady(e.instance));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-app p-8">
+    <div className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-app p-3 md:p-8">
       {/* the engines step lays tiles out two across, so it gets more room —
           but never more than the window: the panel caps at the viewport and
           the engine list scrolls inside it, so the header and Continue stay
           put and nothing runs into the edges */}
       <div
-        className={`flex max-h-full w-full flex-col rounded-2xl border border-hairline/40 bg-panel p-8 ${step === 1 ? "max-w-[680px]" : step === 3 ? "max-w-[620px]" : "max-w-[460px]"}`}
+        className={`flex max-h-full w-full flex-col overflow-y-auto rounded-2xl border border-hairline/40 bg-panel p-4 md:p-8 ${step === 1 ? "max-w-[680px]" : step === 3 ? "max-w-[620px]" : "max-w-[460px]"}`}
       >
         {step === 0 && (
           <div className="flex flex-col items-center">

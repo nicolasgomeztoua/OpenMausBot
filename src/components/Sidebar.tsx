@@ -182,6 +182,7 @@ function GroupListItem({
   const last = group.messages.at(-1);
   return (
     <button
+      data-sidebar-group-row={group.id}
       onClick={() => dispatch({ type: "select", id: group.id })}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -1410,6 +1411,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       aria-label={t("sidebar.aria")}
       data-native-view-overlay
       data-sidebar
+      onClick={(event) => {
+        // Selecting the already-open conversation does not change store
+        // identity, so Shell's view-change effect cannot dismiss the drawer.
+        if (open && event.target instanceof Element && event.target.closest('[data-sidebar-bot-row][role="button"], [data-sidebar-group-row]')) onClose?.();
+      }}
       className={cn(
         "flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel transition-[width] duration-200",
         density === "icons" ? "w-[80px]" : density === "compact" ? "w-[272px]" : "w-[320px]",
@@ -1420,7 +1426,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         // descendants. Cancelling it with an `md:` prefix still emits a value, which
         // silently reparents NewRoomPanel's overlay and the "+" menu backdrop on
         // desktop.
-        "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40",
+        "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:max-w-[calc(100%-2rem)]",
         "max-md:transition-transform max-md:duration-200",
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
       )}

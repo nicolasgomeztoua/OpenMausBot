@@ -1043,8 +1043,8 @@ export function ComputerPanel({
   return (
     <>
     <aside
-      className="animate-panel-in relative flex h-full shrink-0 flex-col border-l border-hairline/40 bg-panel"
-      style={{ width: panelWidth }}
+      className="animate-panel-in relative flex h-full shrink-0 flex-col border-l border-hairline/40 bg-panel max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40"
+      style={{ width: panelWidth, maxWidth: "100%" }}
     >
       <div
         role="separator"
@@ -1054,7 +1054,7 @@ export function ComputerPanel({
         onPointerMove={onResizeMove}
         onPointerUp={onResizeEnd}
         onPointerCancel={onResizeEnd}
-        className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-accent/40"
+        className="absolute inset-y-0 left-0 z-10 hidden w-1.5 cursor-col-resize hover:bg-accent/40 md:block"
       />
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
@@ -1110,7 +1110,8 @@ export function ComputerPanel({
         )}
         <button
           onClick={() => dispatch({ type: "toggleComputer", open: false })}
-          className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+          aria-label="Close computer"
+          className="flex size-11 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink md:size-7"
         >
           <X size={18} />
         </button>

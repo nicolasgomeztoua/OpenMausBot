@@ -15,7 +15,7 @@ import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
 import { CompanionSection } from "./CompanionSection";
 import { RemoteComputerSection } from "./RemoteComputerSection";
-import { Card, Switch } from "./SettingsPrimitives";
+import { Card, SettingsSectionSelect, Switch } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
 import { SkinPicker } from "./SkinPicker";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
@@ -557,9 +557,9 @@ export function SettingsModal() {
 
       const focusable = Array.from(
         dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
-      );
+      ).filter((element) => element.getClientRects().length > 0);
       if (focusable.length === 0) {
         event.preventDefault();
         dialog.focus();
@@ -587,7 +587,7 @@ export function SettingsModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+      className="viewport-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 md:p-6"
       onMouseDown={(e) => e.target === e.currentTarget && dispatch({ type: "toggleAppSettings", open: false })}
     >
       <div
@@ -596,14 +596,21 @@ export function SettingsModal() {
         aria-modal="true"
         aria-labelledby="app-settings-title"
         tabIndex={-1}
-        className="flex h-[560px] w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none"
+        className="flex h-[560px] max-h-full w-full max-w-[860px] flex-col overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none md:flex-row"
       >
         {/* section nav */}
-        <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3">
-          <div id="app-settings-title" className="shrink-0 px-2 py-3 text-[15px] font-semibold text-ink">
+        <nav className="flex min-h-0 shrink-0 flex-col gap-0.5 border-b border-hairline/40 p-3 md:w-[190px] md:overflow-y-auto md:border-b-0 md:border-r">
+          <SettingsSectionSelect
+            aria-label={t("settings.title")}
+            value={section}
+            onChange={(event) => dispatch({ type: "toggleAppSettings", open: true, section: event.target.value as AppSettingsSection })}
+          >
+            {visibleSections.map(({ id, labelKey }) => <option key={id} value={id}>{t(labelKey)}</option>)}
+          </SettingsSectionSelect>
+          <div id="app-settings-title" className="shrink-0 px-2 py-3 text-[15px] font-semibold text-ink max-md:sr-only">
             {t("settings.title")}
           </div>
-          <div className="mb-2 mt-1 flex shrink-0 items-center gap-2 rounded-lg bg-control/70 px-2.5 py-2">
+          <div className="mb-2 mt-1 hidden shrink-0 items-center gap-2 rounded-lg bg-control/70 px-2.5 py-2 md:flex">
             <Search size={14} className="shrink-0 text-ink-secondary" />
             <input
               value={query}
@@ -630,7 +637,7 @@ export function SettingsModal() {
               onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: id })}
               aria-current={section === id ? "page" : undefined}
               className={cn(
-                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px]",
+                "hidden shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] md:flex",
                 section === id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/50 hover:text-ink",
               )}
             >
@@ -640,21 +647,21 @@ export function SettingsModal() {
           ))}
         </nav>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center justify-between px-5 py-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center justify-between px-5 py-3">
             <span className="text-[15px] font-semibold text-ink">
               {sectionLabelKey ? t(sectionLabelKey) : null}
             </span>
             <button
               onClick={() => dispatch({ type: "toggleAppSettings", open: false })}
               aria-label={t("settings.close")}
-              className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+              className="flex size-11 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink md:size-7"
             >
               <X size={18} />
             </button>
           </div>
 
-          <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5">
             {section === "general" && (
               <>
                 <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>

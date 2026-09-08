@@ -32,31 +32,43 @@ export function UsageSection() {
       {rows.length === 0 ? (
         <div className="text-[13px] text-ink-secondary">{t("usage.empty")}</div>
       ) : (
-        <div className="flex flex-col">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-5 border-b border-hairline/40 pb-2 text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary">
-            <span>{t("usage.colBot")}</span>
-            <span className="text-right">{t("usage.colTurns")}</span>
-            <span className="text-right">{t("usage.colTokens")}</span>
-            <span className="text-right">{t("usage.colCost")}</span>
-          </div>
-          {rows.map(({ bot, usage }) => (
-            <div key={bot.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5 border-b border-hairline/20 py-2 text-[13px]">
-              <span className="flex min-w-0 items-center gap-2 text-ink">
-                <BotAvatar bot={bot} state="idle" size={22} animated={false} />
-                <span className="truncate">{bot.name}</span>
-              </span>
-              <span className="text-right tabular-nums text-ink-secondary">{usage.turns}</span>
-              <span className="text-right tabular-nums text-ink" title={usageDetail(usage)}>
-                {formatTokens(usage.input + usage.output)}
-              </span>
-              <span className="text-right tabular-nums text-ink">{hasFiniteCost(usage.costUsd) ? formatUsd(usage.costUsd) : <span className="text-ink-secondary">—</span>}</span>
-            </div>
-          ))}
-          <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5 pt-2.5 text-[13px] font-medium text-ink">
-            <span>{t("usage.allBots")}</span>
-            <span className="text-right tabular-nums">{total.turns}</span>
-            <span className="text-right tabular-nums" title={usageDetail(total)}>{formatTokens(total.input + total.output)}</span>
-            <span className="text-right tabular-nums">{hasFiniteCost(total.costUsd) ? formatUsd(total.costUsd) : "—"}</span>
+        <div className="min-w-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px] tabular-nums sm:text-[13px]">
+            <thead className="border-b border-hairline/40 text-[10px] uppercase sm:text-[11.5px] tracking-wide text-ink-secondary">
+              <tr>
+                <th scope="col" className="pb-2 text-left font-medium">{t("usage.colBot")}</th>
+                <th scope="col" className="pb-2 pl-2 sm:pl-3 text-right font-medium">{t("usage.colTurns")}</th>
+                <th scope="col" className="pb-2 pl-2 sm:pl-3 text-right font-medium">{t("usage.colTokens")}</th>
+                <th scope="col" className="pb-2 pl-2 sm:pl-3 text-right font-medium">{t("usage.colCost")}</th>
+              </tr>
+            </thead>
+            <tbody>
+            {rows.map(({ bot, usage }) => (
+              <tr key={bot.id} className="border-b border-hairline/20">
+                <th scope="row" className="py-2 text-left font-normal text-ink">
+                  <span className="flex items-center gap-2">
+                    <span className="hidden sm:inline-flex"><BotAvatar bot={bot} state="idle" size={22} animated={false} /></span>
+                    <span className="w-14 grow truncate sm:w-20" title={bot.name}>{bot.name}</span>
+                  </span>
+                </th>
+                <td className="whitespace-nowrap py-2 pl-2 sm:pl-3 text-right text-ink-secondary">{usage.turns}</td>
+                <td className="whitespace-nowrap py-2 pl-2 sm:pl-3 text-right text-ink" title={usageDetail(usage)}>
+                  {formatTokens(usage.input + usage.output)}
+                </td>
+                <td className="whitespace-nowrap py-2 pl-2 sm:pl-3 text-right text-ink">{hasFiniteCost(usage.costUsd) ? formatUsd(usage.costUsd) : <span className="text-ink-secondary">—</span>}</td>
+              </tr>
+            ))}
+            </tbody>
+            <tfoot className="font-medium text-ink">
+              <tr>
+                <th scope="row" className="pt-2.5 text-left">{t("usage.allBots")}</th>
+                <td className="whitespace-nowrap pl-2 sm:pl-3 pt-2.5 text-right">{total.turns}</td>
+                <td className="whitespace-nowrap pl-2 sm:pl-3 pt-2.5 text-right" title={usageDetail(total)}>{formatTokens(total.input + total.output)}</td>
+                <td className="whitespace-nowrap pl-2 sm:pl-3 pt-2.5 text-right">{hasFiniteCost(total.costUsd) ? formatUsd(total.costUsd) : "—"}</td>
+              </tr>
+            </tfoot>
+            </table>
           </div>
           {cachedInput(total) > 0 && (
             <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">

@@ -1095,16 +1095,16 @@ export function GroupView({ group }: { group: Group }) {
       {/* Header: static member avatars; a ring + dot marks the working bot. */}
       <div
         className={cn(
-          "flex items-center justify-between px-5 py-3",
+          "chat-header @container/chathead flex shrink-0 items-center justify-between px-5 py-3",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="chat-header-identity flex min-w-0 items-center gap-2 max-md:min-h-12">
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
-          {!setupPending && !group.dm && <GroupTaskPicker group={group} />}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="chat-header-actions flex items-center gap-1.5">
+          {!setupPending && !group.dm && <GroupTaskPicker group={group} />}
           <button
             type="button"
             onClick={() => setFindOpen((open) => !open)}
@@ -1228,7 +1228,7 @@ export function GroupView({ group }: { group: Group }) {
       <div className="relative min-h-0 flex-1">
       <div
         ref={scrollRef}
-        className="h-full overflow-x-hidden overflow-y-auto px-5 [overflow-anchor:none]"
+        className="h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-5 [overflow-anchor:none]"
         onWheel={(e) => {
           if (e.deltaY < 0) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);

@@ -1114,12 +1114,12 @@ export function ChatView({ bot }: { bot: Bot }) {
         className={cn(
           // @container so the chips on the right can fold to icon bubbles
           // when the column is narrow (side panel open, small window)
-          "@container/chathead flex items-center justify-between px-5 py-3",
+          "chat-header @container/chathead flex shrink-0 items-center justify-between px-5 py-3",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1">
+        <div className="chat-header-identity flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1">
           <button
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
@@ -1157,7 +1157,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           )}
           {bot.busy && <WorkingDots className="text-ink-secondary" />}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="chat-header-actions flex shrink-0 items-center gap-2">
           <button
             onClick={() => setFindOpen((open) => !open)}
             aria-label={t("chat.find")}
@@ -1407,7 +1407,7 @@ function UsageChip({ bot }: { bot: Bot }) {
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true, section: "usage" })}
-      className="whitespace-nowrap rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2"
+      className="min-w-[7ch] shrink-0 whitespace-nowrap rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2"
       title={detail}
     >
       <span className="@max-4xl/chathead:hidden">{text}</span>
