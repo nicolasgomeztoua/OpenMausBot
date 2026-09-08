@@ -154,6 +154,8 @@ export interface Message {
   from?: { botId: string; name: string; color: MausColor };
   /** emoji reactions; by = "user" or a member botId. */
   reactions?: Array<{ emoji: string; by: string }>;
+  /** Harness-authored receipt for returning the computer to this conversation. */
+  computerControl?: { type: "returned" };
   /** comm chips: "Messaged @X" linking to the bot⇄bot channel. */
   comm?: { groupId: string; withBotId: string; withName: string; withColor: MausColor };
   /** sent while the bot was mid-turn; auto-sends when the turn settles.

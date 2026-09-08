@@ -13,6 +13,29 @@ function tracked() {
 }
 
 describe("computer control", () => {
+  it("pins the conversation through retries, task switches and lease releases", () => {
+    const { control } = tracked();
+    control.acquireLease("b1", "lease-a", "task-a");
+    control.acquireLease("b1", "lease-a", "task-b");
+    control.take("b1", "task-c");
+    expect(control.threadId("b1")).toBe("task-a");
+    control.releaseLease("b1", "lease-other");
+    expect(control.threadId("b1")).toBe("task-a");
+    control.releaseLease("b1", "lease-a");
+    expect(control.threadId("b1")).toBeNull();
+  });
+
+  it("keeps a help request's room when control is taken from the bot panel", () => {
+    const { control } = tracked();
+    const help = control.requestHelpLease("b1", "Log in", "room-thread");
+    control.take("b1", "direct-thread");
+    control.expireHelp("b1", help.requestId);
+    expect(control.threadId("b1")).toBe("room-thread");
+    expect(control.snapshot("b1")).not.toHaveProperty("threadId");
+    control.forget("b1");
+    expect(control.threadId("b1")).toBeNull();
+  });
+
   it("starts disengaged for an unknown bot", () => {
     const { control } = tracked();
     expect(control.snapshot("b1")).toEqual({ held: false, helpReason: null, heldSinceMs: null });

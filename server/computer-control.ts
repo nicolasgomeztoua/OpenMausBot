@@ -49,6 +49,8 @@ interface Entry {
   helpRequestId: string | null;
   /** Opaque workspace lease. It is deliberately absent from every snapshot. */
   controlLeaseId: string | null;
+  /** Conversation that requested help or acquired this hold. */
+  threadId: string | null;
 }
 
 export class ComputerControl {
@@ -65,6 +67,10 @@ export class ComputerControl {
     this.now = now;
   }
 
+  threadId(botId: string): string | null {
+    return this.entries.get(botId)?.threadId ?? null;
+  }
+
   snapshot(botId: string): ControlSnapshot {
     const entry = this.entries.get(botId);
     if (!entry) return NO_CONTROL;
@@ -77,7 +83,7 @@ export class ComputerControl {
 
   /** The person takes the wheel. Idempotent — a second click must not
    * reset `heldSinceMs` and make the hold look newer than it is. */
-  take(botId: string): ControlSnapshot {
+  take(botId: string, threadId?: string): ControlSnapshot {
     const entry = this.entries.get(botId);
     if (entry?.heldSinceMs != null) return this.snapshot(botId);
     this.entries.set(botId, {
@@ -85,13 +91,14 @@ export class ComputerControl {
       helpReason: entry?.helpReason ?? null,
       helpRequestId: entry?.helpRequestId ?? null,
       controlLeaseId: null,
+      threadId: entry?.threadId ?? threadId ?? null,
     });
     return this.changed(botId);
   }
 
   /** Atomically take or re-check a workspace-owned hold. The opaque lease is
    * never returned in a snapshot, broadcast, or API response. */
-  acquireLease(botId: string, controlLeaseId: string): ControlLeaseResult {
+  acquireLease(botId: string, controlLeaseId: string, threadId?: string): ControlLeaseResult {
     const entry = this.entries.get(botId);
     if (entry?.heldSinceMs != null) {
       return {
@@ -105,6 +112,7 @@ export class ComputerControl {
       helpReason: entry?.helpReason ?? null,
       helpRequestId: entry?.helpRequestId ?? null,
       controlLeaseId,
+      threadId: entry?.threadId ?? threadId ?? null,
     });
     return { snapshot: this.changed(botId), owned: true, acquired: true };
   }
@@ -138,13 +146,14 @@ export class ComputerControl {
 
   /** Open a help request and return the lease that owns it. A proxy uses
    * this id to expire only its own unanswered plea when its wait ends. */
-  requestHelpLease(botId: string, reason: unknown): { snapshot: ControlSnapshot; requestId: string } {
+  requestHelpLease(botId: string, reason: unknown, threadId?: string): { snapshot: ControlSnapshot; requestId: string } {
     const text = typeof reason === "string" ? reason.trim().slice(0, MAX_REASON_CHARS) : "";
     const entry = this.entries.get(botId) ?? {
       heldSinceMs: null,
       helpReason: null,
       helpRequestId: null,
       controlLeaseId: null,
+      threadId: threadId ?? null,
     };
     if (entry.helpReason === null) {
       entry.helpReason = text || "the bot asked you to take over";

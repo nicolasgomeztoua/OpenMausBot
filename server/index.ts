@@ -773,6 +773,11 @@ function clearDirectTurnDispatch(botId: string, claimId: string): void {
 }
 
 function cancelDirectTurnDispatch(botId: string, expectedThreadId?: string): DirectTurnDispatchClaim | null {
+  for (const [id, entry] of pendingComputerHandbacks) {
+    if (entry.botId === botId && (expectedThreadId === undefined || entry.threadId === expectedThreadId)) {
+      pendingComputerHandbacks.delete(id);
+    }
+  }
   const claim = directTurnDispatchClaims.get(botId);
   if (!claim || (expectedThreadId !== undefined && claim.threadId !== expectedThreadId)) return null;
   directTurnDispatchClaims.delete(botId);
@@ -858,16 +863,32 @@ function connectedAppsIntegration(botId: string, threadId: string, generation: s
 // they hold it, the bot's computer proxies refuse every action. The record
 // lives here; the proxies consult it over loopback with the boot token.
 const computerControlRevision = new Map<string, number>();
-const computerControl = new ComputerControl((botId, snapshot) => {
-  computerControlRevision.set(botId, (computerControlRevision.get(botId) ?? 0) + 1);
-  // One-way, fail-closed mirror into the Electron process that owns the
-  // native browser. Never send release: a loopback caller can influence the
-  // server record, while only the trusted Browser panel may clear Electron's
-  // local gate after its server-first release succeeds.
-  if (snapshot.held && /^[A-Za-z0-9_-]{1,120}$/.test(botId)) {
-    postDesktopPrivateMessage({ type: "openmausbot:browser-control", botId, held: true });
+/** Human holds follow the physical target. Help text stays with its bot. */
+function computerControlPeers(botId: string): string[] {
+  const bot = store.bot(botId);
+  if (bot?.computer !== "vm") return [botId];
+  const key = localVmTargetForBot(botId).key;
+  return store.bots.filter(candidate => candidate.computer === "vm" &&
+    localVmTargetForBot(candidate.id).key === key).map(candidate => candidate.id);
+}
+
+function computerControlSnapshot(botId: string) {
+  const own = computerControl.snapshot(botId);
+  const hold = computerControlPeers(botId).map(id => computerControl.snapshot(id)).find(s => s.held);
+  return hold ? { ...own, held: true, heldSinceMs: hold.heldSinceMs } : own;
+}
+
+const computerControl = new ComputerControl((botId) => {
+  for (const peerId of computerControlPeers(botId)) {
+    computerControlRevision.set(peerId, (computerControlRevision.get(peerId) ?? 0) + 1);
+    const snapshot = computerControlSnapshot(peerId);
+    // Positive-only mirror: only the trusted Browser panel clears the native
+    // browser gate after a server-first release succeeds.
+    if (snapshot.held && /^[A-Za-z0-9_-]{1,120}$/.test(peerId)) {
+      postDesktopPrivateMessage({ type: "openmausbot:browser-control", botId: peerId, held: true });
+    }
+    broadcast({ kind: "computer-control", botId: peerId, held: snapshot.held, helpReason: snapshot.helpReason });
   }
-  broadcast({ kind: "computer-control", botId, held: snapshot.held, helpReason: snapshot.helpReason });
 });
 const controlLeaseIdSchema = z.string().min(16).max(120).regex(/^[A-Za-z0-9_-]+$/);
 const routineRequestSourceSchema = {
@@ -1918,6 +1939,9 @@ function cancelGroupTurnOperations(
     detail: "Stopped by you.",
   },
 ) {
+  for (const [id, entry] of pendingComputerHandbacks) {
+    if (entry.threadId === threadId) pendingComputerHandbacks.delete(id);
+  }
   for (const operation of groupTurnOperations.get(groupId) ?? []) {
     if (operation.threadId !== threadId) continue;
     operation.cancelled = true;
@@ -2348,6 +2372,7 @@ const watchdog = new TurnWatchdog({
         drainQueuedSends();
         drainConnectorResumes();
         drainSecretResumes();
+        drainComputerHandbacks();
       }
     };
     const release = setTimeout(releaseOwnership, 6_000);
@@ -3804,7 +3829,7 @@ function startScreenPoller(
   const entry = Object.assign(createScreenFrameSource({
     captures,
     control: () => ({
-      held: computerControl.snapshot(botId).held,
+      held: computerControlSnapshot(botId).held,
       revision: computerControlRevision.get(botId) ?? 0,
     }),
     onFrame: (frame) => broadcast({ kind: "screen", botId, ...frame }),
@@ -3905,7 +3930,7 @@ async function startTurn(
     /** ask_bot delivery: the bot whose words this user-role line carries,
      * recorded on the message itself (Message.peerAsk). */
     peerAsk?: Message["peerAsk"];
-    /** Resume an agent after the user completed an inline connection or credential card.
+    /** Resume an agent after an inline action or a harness event.
      * The prompt is control-plane context: it reaches the provider without
      * masquerading as another message authored by the user. */
     cardContinuation?: boolean;
@@ -4575,6 +4600,7 @@ async function startTurn(
           drainQueuedSends();
           drainConnectorResumes();
           drainSecretResumes();
+          drainComputerHandbacks();
           drainDelegationWakes();
         }
         return;
@@ -4609,6 +4635,7 @@ async function startTurn(
       drainQueuedSends();
       drainConnectorResumes();
       drainSecretResumes();
+      drainComputerHandbacks();
       drainDelegationWakes();
     }
   })();
@@ -5755,6 +5782,7 @@ async function runGroupMemberTurn(
     drainQueuedSends();
     drainConnectorResumes();
     drainSecretResumes();
+    drainComputerHandbacks();
     return false;
   }
   if (outcome === "timed_out") {
@@ -5782,6 +5810,7 @@ async function runGroupMemberTurn(
         drainQueuedSends();
         drainConnectorResumes();
         drainSecretResumes();
+        drainComputerHandbacks();
       }
     };
     const release = setTimeout(releaseOwnership, 6_000);
@@ -5807,6 +5836,7 @@ async function runGroupMemberTurn(
     drainQueuedSends();
     drainConnectorResumes();
     drainSecretResumes();
+    drainComputerHandbacks();
   }
   if (outcome === "provider_failed") {
     if (skillAuthoring) skillAuthoringClaim.claimed = false;
@@ -5902,6 +5932,7 @@ async function runGroupMemberTurn(
       drainQueuedSends();
       drainConnectorResumes();
       drainSecretResumes();
+      drainComputerHandbacks();
     }
   }
 }
@@ -7057,6 +7088,111 @@ function markSecretResumeFailed(threadId: string, messageId: string, error: stri
   });
 }
 
+// A control return is a harness event, not a user-authored chat message.
+// Like credential/connector completions it resumes the originating thread,
+// waits behind busy turns, and uses the room's normal member-turn queue.
+type ComputerHandbackEvent = {
+  type: "computer.control-returned";
+  id: string;
+  botId: string;
+  threadId: string;
+  messageId?: string;
+};
+const COMPUTER_HANDBACK_PROMPT = "OpenMausBot computer control update: the user handed control back. Continue the task in this conversation that paused for their help. The screen may have changed; take a fresh screenshot before acting. This event does not confirm that a login or other requested step succeeded. Check the current state, and if the task is already complete, briefly acknowledge the hand-back.";
+const pendingComputerHandbacks = new Map<string, ComputerHandbackEvent>();
+
+function recordComputerHandback(entry: ComputerHandbackEvent) {
+  if (entry.messageId) return;
+  const owner = connectorThread(entry.botId, entry.threadId);
+  if (!owner) return;
+  entry.messageId = store.appendMessage(entry.threadId, {
+    role: "bot",
+    kind: "activity",
+    computerControl: { type: "returned" },
+    tool: { name: "Computer control returned", spoken: "You handed control back", ok: true },
+    ...(owner.group ? { from: { botId: owner.bot.id, name: owner.bot.name, color: owner.bot.color } } : {}),
+  }).id;
+}
+
+function markComputerHandbackFailed(entry: ComputerHandbackEvent, error: string) {
+  recordComputerHandback(entry);
+  if (!entry.messageId) return;
+  store.patchMessage(entry.threadId, entry.messageId, {
+    tool: { name: `error: could not resume after computer hand-back — ${error.slice(0, 120)}`, ok: false },
+  });
+}
+
+function queueComputerHandback(botId: string, threadId: string) {
+  dispatchComputerHandback({ type: "computer.control-returned", id: randomUUID(), botId, threadId });
+}
+
+function dispatchComputerHandback(entry: ComputerHandbackEvent) {
+  const owner = connectorThread(entry.botId, entry.threadId);
+  if (!owner) return;
+  const prompt = COMPUTER_HANDBACK_PROMPT;
+  if (owner.bot.busy || computerControlSnapshot(entry.botId).held) {
+    pendingComputerHandbacks.set(entry.id, entry);
+    return;
+  }
+  if (owner.group) {
+    const groupId = owner.group.id;
+    const operation = beginGroupTurnOperation(groupId, entry.threadId, [entry.botId]);
+    const previous = groupQueues.get(groupId) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      if (operation.cancelled) return;
+      const current = connectorThread(entry.botId, entry.threadId);
+      if (!current?.group) return;
+      if (current.bot.busy || computerControlSnapshot(entry.botId).held) {
+        pendingComputerHandbacks.set(entry.id, entry);
+        return;
+      }
+      recordComputerHandback(entry);
+      await runGroupMemberTurn(
+        current.group.id,
+        entry.threadId,
+        entry.botId,
+        0,
+        new Set(),
+        prompt,
+        (message) => markComputerHandbackFailed(entry, message),
+        () => operation.cancelled,
+        () => groupProviderHandshakeStarted(operation),
+        () => groupProviderHandshakeSettled(operation),
+      );
+    });
+    const tracked = next.finally(() => finishGroupTurnOperation(groupId, operation));
+    groupQueues.set(
+      groupId,
+      tracked.catch((error) => {
+        markComputerHandbackFailed(entry, error instanceof Error ? error.message : String(error));
+      }),
+    );
+    return;
+  }
+  recordComputerHandback(entry);
+  void startTurn(entry.botId, prompt, {
+    threadId: entry.threadId,
+    cardContinuation: true,
+    onDispatchError: (message) => markComputerHandbackFailed(entry, message),
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already working/i.test(message)) {
+      pendingComputerHandbacks.set(entry.id, entry);
+    } else {
+      markComputerHandbackFailed(entry, message);
+    }
+  });
+}
+
+
+function drainComputerHandbacks() {
+  for (const [id, entry] of pendingComputerHandbacks) {
+    if (store.bot(entry.botId)?.busy || computerControlSnapshot(entry.botId).held) continue;
+    pendingComputerHandbacks.delete(id);
+    dispatchComputerHandback(entry);
+  }
+}
+
 function dispatchSecretResume(entry: SecretResumeEntry) {
   const owner = connectorThread(entry.botId, entry.threadId);
   if (!owner) return;
@@ -7246,6 +7382,7 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "turn.completed") {
     drainConnectorResumes();
     drainSecretResumes();
+    drainComputerHandbacks();
   }
 });
 
@@ -7509,6 +7646,7 @@ async function reloadProviders() {
   drainQueuedSends();
   drainConnectorResumes();
   drainSecretResumes();
+  drainComputerHandbacks();
 }
 
 // Config writes rebuild the whole provider registry. Keep the read-modify-write
@@ -8706,7 +8844,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (method === "POST") {
           const body = await readInternalBody();
-          const { snapshot, requestId } = computerControl.requestHelpLease(botId, body.reason);
+          const { snapshot, requestId } = computerControl.requestHelpLease(botId, body.reason, internalCapability.threadId);
           // worth a buzz: the bot is blocked on the person's hands, which
           // is exactly the "blocked on you" rule notify.ts encodes.
           // A bot stuck mid-room is not in its 1:1 thread — the turn and the
@@ -9034,7 +9172,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         groups: store.groups.map((g) => ({ ...publicGroupState(g), ...messagePage(g.threadId, limit) })),
         computerControl: Object.fromEntries(
           store.bots.map((bot) => {
-            const snapshot = computerControl.snapshot(bot.id);
+            const snapshot = computerControlSnapshot(bot.id);
             return [bot.id, { held: snapshot.held, helpReason: snapshot.helpReason }];
           }),
         ),
@@ -12882,7 +13020,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m) {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      if (method === "GET") return json(res, 200, computerControl.snapshot(bot.id));
+      if (method === "GET") return json(res, 200, computerControlSnapshot(bot.id));
       if (method === "POST") {
         // JSON-only for the same anti-form-POST reason as every other
         // computer mutation below.
@@ -12902,21 +13040,47 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (action === "take" && boxLifecycleBusyBots.has(bot.id)) {
           return json(res, 409, { error: "this bot's cloud computer is being changed — wait before taking control" });
         }
+        // Pin the destination when the person takes control. Help requests
+        // already carry their originating conversation, including room turns.
+        const threadId = typeof body.threadId === "string" ? body.threadId
+          : activeGroupTurnForBot(bot.id)?.threadId ?? bot.threadId;
+        if (action === "take" && !connectorThread(bot.id, threadId)) {
+          return json(res, 400, { error: "conversation does not belong to this bot" });
+        }
+        const peers = computerControlPeers(bot.id);
+        const holderId = peers.find(id => computerControl.snapshot(id).held);
         if (action === "take" && controlLeaseId) {
-          const result = computerControl.acquireLease(bot.id, controlLeaseId);
+          const result = computerControl.acquireLease(holderId ?? bot.id, controlLeaseId, threadId);
           return json(res, 200, {
-            ...result.snapshot,
-            owned: result.owned,
-            acquired: result.acquired,
+            ...computerControlSnapshot(bot.id), owned: result.owned, acquired: result.acquired,
           });
         }
-        if (action === "release" && controlLeaseId) {
-          const result = computerControl.releaseLease(bot.id, controlLeaseId);
-          return json(res, 200, { ...result.snapshot, released: result.released });
+        if (action === "take") {
+          if (!holderId) computerControl.take(bot.id, threadId);
+          return json(res, 200, computerControlSnapshot(bot.id));
         }
-        if (action === "take") return json(res, 200, computerControl.take(bot.id));
-        if (action === "release") return json(res, 200, computerControl.release(bot.id));
-        if (action === "dismiss-help") return json(res, 200, computerControl.dismissHelp(bot.id));
+        if (action === "release") {
+          const originThreadId = computerControl.threadId(bot.id) ?? threadId;
+          let released = false;
+          for (const peerId of peers) {
+            if (controlLeaseId) {
+              // Unmount/cleanup retries must never release a newer holder.
+              released = computerControl.releaseLease(peerId, controlLeaseId).released || released;
+            } else {
+              const held = computerControl.snapshot(peerId).held;
+              released = held || released;
+              if (held || peerId === bot.id) computerControl.release(peerId);
+            }
+          }
+          const snapshot = computerControlSnapshot(bot.id);
+          if (released && !snapshot.held) queueComputerHandback(bot.id, originThreadId);
+          drainComputerHandbacks();
+          return json(res, 200, { ...snapshot, ...(controlLeaseId ? { released } : {}) });
+        }
+        if (action === "dismiss-help") {
+          computerControl.dismissHelp(bot.id);
+          return json(res, 200, computerControlSnapshot(bot.id));
+        }
         return json(res, 400, { error: "action must be take, release, or dismiss-help" });
       }
       return json(res, 405, { error: "method not allowed" });
