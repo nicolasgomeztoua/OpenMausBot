@@ -217,14 +217,14 @@ describe("createGateInterceptor", () => {
     expect(order).toEqual(["fwd:1", "fwd:2", "fwd:drained"]);
   });
 
-  it("fails open: a broken held-check forwards rather than wedging the computer", async () => {
+  it("fails closed when the control check fails", async () => {
     const { forwarded, refused, intercept } = harness(async () => {
       throw new Error("harness went away");
     });
     intercept(frame("tools/call", 1));
     await drain();
-    expect(refused).toEqual([]);
-    expect(forwarded).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect(forwarded).toEqual([]);
   });
 });
 

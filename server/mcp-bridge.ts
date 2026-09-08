@@ -169,38 +169,49 @@ export function createLineSplitter(onLine: (line: string) => void): {
  * refused; every other frame — handshakes, tools/list, notifications,
  * lines that are not JSON — passes through untouched. */
 export function createGateInterceptor(options: {
-  isHeld: () => Promise<boolean>;
+  isHeld: (signal?: AbortSignal) => Promise<boolean>;
   forward: (line: string) => void;
   refuse: (line: string) => void;
   refusalText?: string;
 }): (line: string) => void {
   const refusalText = options.refusalText ?? CONTROL_REFUSAL_PLAIN;
   let queue: Promise<void> = Promise.resolve();
+  const pending = new Map<unknown, AbortController>();
   return (line: string) => {
+    let frame: any = null;
+    try { frame = JSON.parse(line); } catch { /* Pass unknown frames through. */ }
+    // Cancellation must bypass the queue: otherwise a timed-out click could
+    // execute later, only then followed by its already-received cancellation.
+    if (frame?.method === "notifications/cancelled") {
+      pending.get(frame.params?.requestId)?.abort();
+      options.forward(line);
+      return;
+    }
+    const cancellation = frame?.method === "tools/call" ? new AbortController() : null;
+    if (cancellation) pending.set(frame.id, cancellation);
     queue = queue.then(async () => {
-      let frame: any = null;
+      if (!cancellation) {
+        options.forward(line);
+        return;
+      }
       try {
-        frame = JSON.parse(line);
-      } catch {
-        // not a frame this gate understands — never stand between the
-        // agent and its driver on anything but a recognized tool call
+        if (cancellation.signal.aborted) return;
+        const held = await options.isHeld(cancellation.signal).catch(() => true);
+        if (cancellation.signal.aborted) return;
+        if (!held) {
+          options.forward(line);
+          return;
+        }
+        options.refuse(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: frame.id ?? null,
+            result: { content: [{ type: "text", text: refusalText }], isError: true },
+          }),
+        );
+      } finally {
+        if (pending.get(frame.id) === cancellation) pending.delete(frame.id);
       }
-      if (!frame || frame.method !== "tools/call") {
-        options.forward(line);
-        return;
-      }
-      const held = await options.isHeld().catch(() => false);
-      if (!held) {
-        options.forward(line);
-        return;
-      }
-      options.refuse(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: frame.id ?? null,
-          result: { content: [{ type: "text", text: refusalText }], isError: true },
-        }),
-      );
     });
   };
 }
@@ -212,7 +223,7 @@ export interface McpBridgeInterceptorOptions {
   forward: (line: string) => void;
   /** Optional who-is-driving gate; when set, `tools/call` may be refused. */
   gate?: {
-    isHeld: () => Promise<boolean>;
+    isHeld: (signal?: AbortSignal) => Promise<boolean>;
     refusalText?: string;
   };
 }
@@ -273,7 +284,7 @@ export function runMcpBridge(options: BridgeOptions): void {
       ...(options.gate
         ? {
             gate: {
-              isHeld: async () => (await client!.state(true)).held,
+              isHeld: async (signal) => (await client!.waitForComputer(signal)).held,
             },
           }
         : {}),

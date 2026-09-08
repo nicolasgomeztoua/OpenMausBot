@@ -619,8 +619,9 @@ function authorizedInternalCapability(header: string | string[] | undefined): In
 function internalCapabilityIsActive(capability: InternalCapability): boolean {
   if (capability.localVmTarget) {
     const owner = localVmLeaseFor(capability.localVmTarget).current(localVmOwnerBusy);
-    if (localVmThreadTargets.get(capability.threadId) !== capability.localVmTarget ||
-        owner?.threadId !== capability.threadId || owner.botId !== capability.botId) return false;
+    if (localVmThreadTargets.get(capability.threadId) !== capability.localVmTarget) return false;
+    if (localVmClaimedTargets.has(capability.localVmTarget) &&
+        (owner?.threadId !== capability.threadId || owner.botId !== capability.botId)) return false;
   }
   return (
     capability.orphanExpiresAt > Date.now() &&
@@ -2521,7 +2522,11 @@ const localVmOwnerBusy = (botId: string) => store.bot(botId)?.busy === true;
 const localVmLeases = new LocalVmLeasePool(30 * 60_000);
 const localVmLifecycleBusy = new Set<string>();
 const localVmThreadTargets = new Map<string, LocalVmTarget>();
-const localVmActiveThreads = new Map<string, string>();
+const localVmActiveThreads = new Map<string, Set<string>>();
+const localVmClaimedTargets = new WeakSet<LocalVmTarget>();
+const localVmWaiters = new Map<string, InternalCapability[]>();
+const localVmWaitMessages = new WeakMap<InternalCapability, string>();
+const localVmPreparations = new Map<string, Promise<Awaited<ReturnType<typeof readyLocalVmForTurn>>>>();
 let localVmImageBusy = false;
 let localVmProvisionBusy = false;
 let localVmModeChangeBusy = false;
@@ -2694,11 +2699,81 @@ function localVmIdleFor(target: LocalVmTarget): LocalVmIdleTimer {
   return idle;
 }
 
+function registerLocalVmThread(threadId: string, target: LocalVmTarget): void {
+  localVmThreadTargets.set(threadId, target);
+  const threads = localVmActiveThreads.get(target.key) ?? new Set<string>();
+  threads.add(threadId);
+  localVmActiveThreads.set(target.key, threads);
+  localVmIdleFor(target).touch();
+}
+
+// Desktop readiness is shared, but each conversation retains its own identity.
+// In particular, two first messages must not race to recreate the same VM.
+function prepareLocalVmForTurn(botId: string, target: LocalVmTarget) {
+  let preparation = localVmPreparations.get(target.key);
+  if (!preparation) {
+    preparation = readyLocalVmForTurn(botId, target, () => localVmActiveThreads.has(target.key))
+      .finally(() => localVmPreparations.delete(target.key));
+    localVmPreparations.set(target.key, preparation);
+  }
+  return preparation;
+}
+
+function finishLocalVmWait(capability: InternalCapability): void {
+  const messageId = localVmWaitMessages.get(capability);
+  if (!messageId) return;
+  store.patchMessage(capability.threadId, messageId, {
+    tool: { name: "Waiting for the shared computer", ok: true },
+  });
+  localVmWaitMessages.delete(capability);
+}
+
+/** Called only by a computer tool, never by ordinary turn dispatch. */
+function claimLocalVmComputer(capability: InternalCapability): boolean {
+  const target = capability.localVmTarget!;
+  const lease = localVmLeaseFor(target);
+  const owner = lease.current(localVmOwnerBusy);
+  if (owner?.threadId === capability.threadId && owner.botId === capability.botId) {
+    lease.touch(capability.threadId);
+    return true;
+  }
+  const waiters = (localVmWaiters.get(target.key) ?? []).filter(internalCapabilityIsActive);
+  if (!waiters.includes(capability)) {
+    if (owner || waiters.length) {
+      const bot = store.bot(capability.botId);
+      const message = store.appendMessage(capability.threadId, {
+        role: "bot", kind: "activity",
+        ...(bot ? { from: { botId: bot.id, name: bot.name, color: bot.color } } : {}),
+        tool: { name: "Waiting for the shared computer", spoken: "Waiting for the shared computer" },
+      });
+      localVmWaitMessages.set(capability, message.id);
+    }
+    waiters.push(capability);
+  }
+  localVmWaiters.set(target.key, waiters);
+  if (owner || waiters[0] !== capability) return false;
+  if (!lease.claim(capability.threadId, capability.botId, localVmOwnerBusy)) return false;
+  localVmClaimedTargets.add(target);
+  finishLocalVmWait(capability);
+  waiters.shift();
+  if (!waiters.length) localVmWaiters.delete(target.key);
+  return true;
+}
+
 function releaseLocalVmThread(threadId: string): void {
   const target = localVmThreadTargets.get(threadId);
   if (!target) return;
   localVmLeaseFor(target).release(threadId);
-  if (localVmActiveThreads.get(target.key) === threadId) localVmActiveThreads.delete(target.key);
+  const threads = localVmActiveThreads.get(target.key);
+  threads?.delete(threadId);
+  if (!threads?.size) localVmActiveThreads.delete(target.key);
+  const waiters = localVmWaiters.get(target.key)?.filter(waiter => {
+    if (waiter.localVmTarget !== target) return true;
+    finishLocalVmWait(waiter);
+    return false;
+  });
+  if (waiters?.length) localVmWaiters.set(target.key, waiters);
+  else localVmWaiters.delete(target.key);
   localVmThreadTargets.delete(threadId);
 }
 
@@ -4133,26 +4208,18 @@ async function startTurn(
         if (!mountsComputerMcp || instance.driverKind === "boxAgent") {
           throw new Error("this model engine cannot use the Local VM — choose Claude or an ACP engine, or select another computer destination");
         }
-        const localVmTarget = localVmTargetForBot(bot.id);
-        if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(localVmTarget.key)) {
+        const localVmTarget = { ...localVmTargetForBot(bot.id) };
+        if (localVmImageBusy || localVmModeChangeBusy || (localVmLifecycleBusy.has(localVmTarget.key) && !localVmPreparations.has(localVmTarget.key))) {
           throw new Error("this Local VM is being started, stopped, or replaced — wait for setup to finish");
         }
-        // Claim before the first await. The lifecycle route performs its
-        // matching check synchronously, so neither side can enter while the
-        // other is between inspection and mutation.
-        if (!localVmLeaseFor(localVmTarget).claim(threadId, bot.id, localVmOwnerBusy)) {
-          throw new Error("this Local VM is already being used by another turn — wait for that turn to finish");
-        }
-        localVmThreadTargets.set(threadId, localVmTarget);
-        localVmActiveThreads.set(localVmTarget.key, threadId);
-        localVmIdleFor(localVmTarget).touch();
-        const localVm = await readyLocalVmForTurn(bot.id, localVmTarget);
+        registerLocalVmThread(threadId, localVmTarget);
+        const localVm = await prepareLocalVmForTurn(bot.id, localVmTarget);
         if (!localVm.ready || !localVm.runtime) {
           throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Computers)`);
         }
         integrations.localComputer = containerComputerMcp(
           localVm.runtime,
-          controlIntegration(bot.id, threadId, dispatchClaimId),
+          controlIntegration(bot.id, threadId, dispatchClaimId, localVmTarget),
           localVmTarget,
         );
         computerKind = "vm";
@@ -4168,7 +4235,7 @@ async function startTurn(
           // taken after the lease is already released. No owner means the
           // desktop is simply idle: that final frame is ours to keep.
           const owner = localVmLeaseFor(localVmTarget).current(localVmOwnerBusy);
-          if (owner && owner.threadId !== threadId) {
+          if (!localVmClaimedTargets.has(localVmTarget) || (owner && owner.threadId !== threadId)) {
             throw new Error("the Local VM moved on to another turn");
           }
           return containerComputerFrame(undefined, undefined, localVmTarget);
@@ -5426,38 +5493,29 @@ async function runGroupMemberTurn(
   groupSpeakers.set(threadId, roomSpeaker);
 
   // Room and Goal turns use the speaker's desktop, never the coordinator's.
-  // Claim the same lease as direct turns before asynchronous VM setup.
+  // Register the turn for readiness; claim the desktop only on a computer call.
   if (readyBot.computer === "vm") {
     if (instance.adapter.capabilities.computerMcp !== true || instance.driverKind === "boxAgent") {
       throw new Error("this model engine cannot use the Local VM");
     }
     // A distinct identity fences cleanup even in shared mode on the same room thread.
     const target = { ...localVmTargetForBot(readyBot.id) };
-    if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
+    if (localVmImageBusy || localVmModeChangeBusy || (localVmLifecycleBusy.has(target.key) && !localVmPreparations.has(target.key))) {
       throw new Error("this Local VM is being started, stopped, or replaced");
     }
-    if (!localVmLeaseFor(target).claim(threadId, readyBot.id, localVmOwnerBusy)) {
-      throw new Error("this Local VM is already being used by another turn");
-    }
     roomVmTarget = target;
-    localVmThreadTargets.set(threadId, target);
-    localVmActiveThreads.set(target.key, threadId);
-    localVmIdleFor(target).touch();
+    registerLocalVmThread(threadId, target);
     const setupIsCurrent = () => !isCancelled?.() &&
       groupSpeakers.get(threadId) === roomSpeaker &&
       activeInternalGenerationByThread.get(threadId) === internalGeneration &&
       store.group(readyGroup.id)?.memberIds.includes(readyBot.id) === true &&
       store.bot(readyBot.id)?.busy === true &&
       store.group(readyGroup.id)?.busyBotId === readyBot.id;
-    const vm = await readyLocalVmForTurn(readyBot.id, target, setupIsCurrent);
+    const vm = await prepareLocalVmForTurn(readyBot.id, target);
     if (!setupIsCurrent()) {
       return false;
     }
     if (!vm.ready || !vm.runtime) throw new Error(vm.problem ?? "the Local VM is not ready");
-    const owner = localVmLeaseFor(target).current(localVmOwnerBusy);
-    if (owner?.threadId !== threadId || owner.botId !== readyBot.id) {
-      throw new Error("the Local VM lease expired while preparing the turn");
-    }
     integrations.localComputer = containerComputerMcp(
       vm.runtime,
       controlIntegration(readyBot.id, threadId, internalGeneration, target),
@@ -7420,6 +7478,7 @@ async function reloadProviders() {
   // one synchronous step before the first teardown await, including room/task
   // threads that are not a bot's default DM.
   revokeAllInternalCapabilities();
+  for (const threadId of localVmThreadTargets.keys()) releaseLocalVmThread(threadId);
   bus.detachAll();
   await registry.disposeAll();
   await registry.load(instanceConfigs(cfg));
@@ -7428,10 +7487,6 @@ async function reloadProviders() {
   // async under the hood), stranding the bot busy — and its screen poller —
   // forever. Settle anything still marked busy.
   for (const b of store.bots.filter((b) => b.busy)) {
-    const vmThread = [...localVmThreadTargets.entries()].find(([, target]) =>
-      localVmLeaseFor(target).current(localVmOwnerBusy)?.botId === b.id
-    )?.[0];
-    if (vmThread) releaseLocalVmThread(vmThread);
     stopScreenPoller(b.id);
     activeVpsThreads.delete(b.id);
     finalizeDelegationWatch(
@@ -8638,7 +8693,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!bot) return json(res, 404, { error: "no such bot" });
         if (method === "GET") {
           const snapshot = computerControl.snapshot(botId);
-          return json(res, 200, { held: snapshot.held, helpOpen: snapshot.helpReason !== null });
+          const target = internalCapability.localVmTarget;
+          // Human control applies to the shared desktop, including another
+          // bot's view of that same VM. A queued bot never bypasses it.
+          const held = snapshot.held || Boolean(target && store.bots.some(candidate =>
+            candidate.computer === "vm" && localVmTargetForBot(candidate.id).key === target.key &&
+            computerControl.snapshot(candidate.id).held));
+          const waiting = !held && target && url.searchParams.get("acquire") === "1"
+            ? !claimLocalVmComputer(internalCapability) : false;
+          return json(res, 200, { held, helpOpen: snapshot.helpReason !== null, waiting });
         }
         if (method === "POST") {
           const body = await readInternalBody();
@@ -8658,6 +8721,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 200, { held: snapshot.held, helpOpen: snapshot.helpReason !== null, requestId });
         }
         if (method === "DELETE") {
+          if (url.searchParams.get("acquire") === "1") {
+            const target = internalCapability.localVmTarget;
+            if (target) {
+              finishLocalVmWait(internalCapability);
+              const waiters = localVmWaiters.get(target.key)?.filter(waiter => waiter !== internalCapability);
+              if (waiters?.length) localVmWaiters.set(target.key, waiters);
+              else localVmWaiters.delete(target.key);
+            }
+            return json(res, 200, { cancelled: true });
+          }
           const body = await readInternalBody();
           const snapshot = computerControl.expireHelp(botId, body.requestId);
           return json(res, 200, { held: snapshot.held, helpOpen: snapshot.helpReason !== null });
@@ -11751,7 +11824,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "Per-bot mode creates each desktop from that bot's Computer panel" });
       }
       const vmOwner = localVmLeaseFor(SHARED_LOCAL_VM_TARGET).current(localVmOwnerBusy);
-      if (vmOwner && (action === "stop" || action === "remove" || action === "run")) {
+      if ((vmOwner || localVmActiveThreads.has(SHARED_LOCAL_VM_TARGET.key)) && (action === "stop" || action === "remove" || action === "run")) {
         return json(res, 409, { error: "the Local VM is being used by a bot — stop that turn first" });
       }
       if (action === "pull") localVmImageBusy = true;
@@ -11807,7 +11880,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "another per-bot Local VM is being created — retry after it finishes" });
       }
       const vmOwner = localVmLeaseFor(target).current(localVmOwnerBusy);
-      if (vmOwner) return json(res, 409, { error: "this bot is using its Local VM — stop the turn first" });
+      if (vmOwner || localVmActiveThreads.has(target.key)) return json(res, 409, { error: "this bot is using its Local VM — stop the turn first" });
       // Fence this target, and the cross-target capacity decision for creates,
       // before the first await so two requests cannot both pass the limit.
       localVmLifecycleBusy.add(target.key);

@@ -36,7 +36,7 @@ async function until<T>(read: () => T | Promise<T>, accept: (value: T) => boolea
 const dump = () => until(() => existsSync(dumpFile) ? JSON.parse(readFileSync(dumpFile, "utf8")) : null, Boolean);
 const idle = (botId: string) => until(() => api("GET", "/api/bots?messages=0"), s => !s.bots.find((b: any) => b.id === botId)?.busy);
 const computer = (d: any) => d.mcpConfig.mcpServers.computer;
-const gate = (c: any) => fetch(c.env.OMB_CONTROL_URL, { headers: { authorization: `Bearer ${c.env.OMB_CONTROL_TOKEN}` } });
+const gate = (c: any) => fetch(c.env.OMB_CONTROL_URL + "&acquire=1", { headers: { authorization: `Bearer ${c.env.OMB_CONTROL_TOKEN}` } });
 
 beforeAll(async () => {
   fixtureHome = mkdtempSync(join(tmpdir(), "omb-group-vm-"));
@@ -100,6 +100,76 @@ const send = (id: string) => api("POST", `/api/groups/${id}/messages`, { text: "
 const stop = (id: string) => api("POST", `/api/groups/${id}/interrupt`, {});
 
 describe("Group Local VM ownership on the real isolated server", () => {
+  it("runs direct and room chats together, claiming and queueing only computer calls", async () => {
+    const { bots, group } = await room();
+    await api("POST", `/api/bots/${bots[1].id}/messages`, { text: "Keep chatting." });
+    const direct = computer(await dump());
+    rmSync(dumpFile, { force: true });
+    await send(group.id);
+    const member = computer(await dump());
+    const state = await api("GET", "/api/bots?messages=30");
+    expect(bots.map(bot => state.bots.find((b: any) => b.id === bot.id).busy)).toEqual([true, true]);
+    expect(JSON.stringify(state)).not.toContain("already being used");
+    // The earlier chat did not reserve the desktop. The later room speaker
+    // gets it on first use; the chat then waits without failing its turn.
+    expect(await (await gate(member)).json()).toMatchObject({ held: false, waiting: false });
+    expect(await (await gate(direct)).json()).toMatchObject({ held: false, waiting: true });
+    await api("POST", `/api/bots/${bots[1].id}/computer/control`, { action: "take" });
+    expect(await (await gate(member)).json()).toMatchObject({ held: true });
+    expect(await (await gate(direct)).json()).toMatchObject({ held: true });
+    await api("POST", `/api/bots/${bots[1].id}/computer/control`, { action: "release" });
+    expect(await (await gate(direct)).json()).toMatchObject({ held: false, waiting: true });
+    const waitingState = await api("GET", "/api/bots?messages=30");
+    const waitingMessages = waitingState.bots.find((b: any) => b.id === bots[1].id).messages;
+    const waitingMessage = waitingMessages.find((m: any) => m.tool?.name === "Waiting for the shared computer");
+    expect(waitingMessages.filter((m: any) => m.tool?.name === "Waiting for the shared computer")).toHaveLength(1);
+    expect(waitingMessage.tool).toEqual({ name: "Waiting for the shared computer", spoken: "Waiting for the shared computer" });
+    const removal = await fetch(base + "/api/local-computer/remove", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    expect(removal.status).toBe(409);
+    await stop(group.id); await idle(bots[0].id);
+    expect((await gate(member)).status).toBe(401);
+    expect(await (await gate(direct)).json()).toMatchObject({ held: false, waiting: false });
+    const resumed = await api("GET", "/api/bots?messages=30");
+    expect(resumed.bots.find((b: any) => b.id === bots[1].id).messages.find((m: any) => m.id === waitingMessage.id).tool.ok).toBe(true);
+    await api("POST", `/api/bots/${bots[1].id}/interrupt`, {});
+    await idle(bots[1].id);
+    expect((await gate(direct)).status).toBe(401);
+  });
+  it("removes a cancelled waiter and lets the next computer request through", async () => {
+    const { bots, group } = await room();
+    await send(group.id);
+    const owner = computer(await dump());
+    await gate(owner);
+    rmSync(dumpFile, { force: true });
+    await api("POST", `/api/bots/${bots[1].id}/messages`, { text: "Wait for the computer." });
+    const cancelled = computer(await dump());
+    expect(await (await gate(cancelled)).json()).toMatchObject({ waiting: true });
+    await api("POST", `/api/bots/${bots[1].id}/interrupt`, {}); await idle(bots[1].id);
+    expect((await gate(cancelled)).status).toBe(401);
+    rmSync(dumpFile, { force: true });
+    await api("POST", `/api/bots/${bots[1].id}/messages`, { text: "A new conversation turn." });
+    const replacement = computer(await dump());
+    expect(await (await gate(replacement)).json()).toMatchObject({ waiting: true });
+    await stop(group.id); await idle(bots[0].id);
+    expect(await (await gate(replacement)).json()).toMatchObject({ waiting: false });
+    await api("POST", `/api/bots/${bots[1].id}/interrupt`, {}); await idle(bots[1].id);
+  });
+  it("shares readiness without dispatching a cancelled conversation", async () => {
+    const { bots, group } = await room();
+    vmState({ blocked: true }); rmSync(stateFile + ".entered", { force: true });
+    await api("POST", `/api/bots/${bots[1].id}/messages`, { text: "First chat." });
+    await until(() => existsSync(stateFile + ".entered"), Boolean);
+    await send(group.id);
+    await api("POST", `/api/bots/${bots[1].id}/interrupt`, {});
+    vmState();
+    const member = computer(await dump());
+    expect(member.env.OMB_CONTROL_URL).toContain(bots[0].id);
+    expect(await (await gate(member)).json()).toMatchObject({ waiting: false });
+    await idle(bots[1].id);
+    await stop(group.id); await idle(bots[0].id);
+  });
   it("releases a failed readiness claim so the bot and room can run again", async () => {
     const { bots, group } = await room();
     vmState({ failed: true });
