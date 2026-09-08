@@ -24,7 +24,7 @@ export type TranscriptItem =
 function foldable(message: Message): boolean {
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return false;
-  if (message.comm) return false;
+  if (message.comm || message.computerControl) return false;
   if (tool.ok !== true) return false;
   return !tool.name.startsWith("error:");
 }

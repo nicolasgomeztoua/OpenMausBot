@@ -139,7 +139,7 @@ export function RemoteDesktopPanel({ bot }: { bot: Bot }) {
       if (!window.ogb?.desktopViewer) throw new Error("The desktop viewer is unavailable in this build");
       await api(`/api/bots/${bot.id}/computer/control`, {
         method: "POST",
-        body: JSON.stringify({ action: "take" }),
+        body: JSON.stringify({ action: "take", threadId: bot.threadId }),
       });
       tookControl = true;
       const joined = await api(`/api/bots/${bot.id}/computer/join`, {

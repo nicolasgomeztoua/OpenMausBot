@@ -824,7 +824,7 @@ export function ComputerPanel({
   const requestControl = useCallback(async (action: ComputerControlAction) => {
     const snap = computerControlSnapshotSchema.parse(await api(`/api/bots/${bot.id}/computer/control`, {
       method: "POST",
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, threadId: bot.threadId }),
     }));
     dispatch({
       type: "computerControl",
@@ -833,7 +833,7 @@ export function ComputerPanel({
       helpReason: snap.helpReason,
     });
     return snap;
-  }, [bot.id, dispatch]);
+  }, [bot.id, bot.threadId, dispatch]);
 
   // The engine owns its browser; there is no native surface to hold.
   const setNativeBrowserControl = useCallback(async (): Promise<boolean> => true, []);

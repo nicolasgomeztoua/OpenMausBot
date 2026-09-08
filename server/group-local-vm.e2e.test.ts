@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { createGateInterceptor } from "./mcp-bridge.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import { freePortBlock } from "./testing/ports.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
@@ -33,10 +34,20 @@ async function until<T>(read: () => T | Promise<T>, accept: (value: T) => boolea
     await new Promise(r => setTimeout(r, 40));
   }
 }
-const dump = () => until(() => existsSync(dumpFile) ? JSON.parse(readFileSync(dumpFile, "utf8")) : null, Boolean);
+const dump = (): Promise<any> => until(() => existsSync(dumpFile) ? JSON.parse(readFileSync(dumpFile, "utf8")) : null, Boolean);
 const idle = (botId: string) => until(() => api("GET", "/api/bots?messages=0"), s => !s.bots.find((b: any) => b.id === botId)?.busy);
 const computer = (d: any) => d.mcpConfig.mcpServers.computer;
 const gate = (c: any) => fetch(c.env.OMB_CONTROL_URL + "&acquire=1", { headers: { authorization: `Bearer ${c.env.OMB_CONTROL_TOKEN}` } });
+
+// Exercise the same MCP tools/call refusal path as the Local VM bridge,
+// with the real isolated server supplying the control decision.
+const screenshotCall = (c: any): Promise<any> => new Promise(resolve => {
+  createGateInterceptor({
+    isHeld: async () => (await (await gate(c)).json() as { held: boolean }).held,
+    forward: line => resolve({ forwarded: JSON.parse(line) }),
+    refuse: line => resolve(JSON.parse(line)),
+  })(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "screenshot", arguments: {} } }));
+});
 
 beforeAll(async () => {
   fixtureHome = mkdtempSync(join(tmpdir(), "omb-group-vm-"));
@@ -100,6 +111,99 @@ const send = (id: string) => api("POST", `/api/groups/${id}/messages`, { text: "
 const stop = (id: string) => api("POST", `/api/groups/${id}/interrupt`, {});
 
 describe("Group Local VM ownership on the real isolated server", () => {
+  it("shows one shared hold in every panel and releases it from the receiving chat", async () => {
+    const { bots } = await room();
+    const [holder, receiver] = bots;
+    await api("POST", `/api/bots/${receiver.id}/messages`, { text: "Wait for my help." });
+    const c = computer(await dump());
+    await api("POST", `/api/bots/${holder.id}/computer/control`, { action: "take" });
+    expect(await api("GET", `/api/bots/${receiver.id}/computer/control`)).toMatchObject({ held: true });
+    expect((await api("GET", "/api/bots?messages=0")).computerControl[receiver.id].held).toBe(true);
+    expect(await screenshotCall(c)).toMatchObject({ result: { isError: true } });
+    await api("POST", `/api/bots/${receiver.id}/computer/control`, { action: "release" });
+    expect(await screenshotCall(c)).toMatchObject({ forwarded: { params: { name: "screenshot" } } });
+    expect(await api("GET", `/api/bots/${holder.id}/computer/control`)).toMatchObject({ held: false });
+    // Busy turns finish normally; the event then wakes this chat once.
+    rmSync(dumpFile, { force: true });
+    writeFileSync(finishFile, "finish");
+    await until(dump, d => JSON.stringify(d.prompt).includes("OpenMausBot computer control update"));
+    await idle(receiver.id);
+    await api("POST", `/api/bots/${receiver.id}/computer/control`, { action: "release" });
+    const state = await api("GET", "/api/bots?messages=50");
+    const messages = state.bots.find((b: any) => b.id === receiver.id).messages;
+    expect(messages.filter((m: any) => m.computerControl?.type === "returned")).toHaveLength(1);
+    expect(messages.filter((m: any) => m.role === "user")).toHaveLength(1);
+    expect(state.bots.find((b: any) => b.id === holder.id).messages.filter((m: any) => m.computerControl)).toHaveLength(0);
+  });
+
+  it("pins an idle hand-back to its original task and ignores a stale workspace lease", async () => {
+    const { bots } = await room();
+    const bot = bots[0];
+    const lease = "fixture-workspace-owner";
+    await api("POST", `/api/bots/${bot.id}/computer/control`, { action: "take", controlLeaseId: lease, threadId: bot.threadId });
+    const { task } = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Unrelated task" });
+    expect(await api("POST", `/api/bots/${bot.id}/computer/control`, {
+      action: "release", controlLeaseId: "stale-workspace-lease",
+    })).toMatchObject({ held: true, released: false });
+    expect(existsSync(dumpFile)).toBe(false);
+    writeFileSync(finishFile, "finish");
+    await api("POST", `/api/bots/${bot.id}/computer/control`, { action: "release", controlLeaseId: lease });
+    const d = await dump();
+    expect(JSON.stringify(d.prompt)).toContain("OpenMausBot computer control update");
+    await idle(bot.id);
+    const old = await api("GET", `/api/threads/${bot.threadId}/messages`);
+    const fresh = await api("GET", `/api/threads/${task.threadId}/messages`);
+    expect(old.messages.filter((m: any) => m.computerControl)).toHaveLength(1);
+    expect(fresh.messages).toHaveLength(0);
+  });
+
+  it("returns a room help request to its speaker after the original turn ends", async () => {
+    const { bots, group } = await room();
+    await send(group.id);
+    const c = computer(await dump());
+    const response = await fetch(c.env.OMB_CONTROL_URL, {
+      method: "POST", headers: { authorization: `Bearer ${c.env.OMB_CONTROL_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "Please help with this screen" }),
+    });
+    expect(response.ok).toBe(true);
+    await api("POST", `/api/bots/${bots[0].id}/computer/control`, { action: "take", threadId: bots[0].threadId });
+    await stop(group.id); await idle(bots[0].id);
+    rmSync(dumpFile, { force: true }); writeFileSync(finishFile, "finish");
+    await api("POST", `/api/bots/${bots[0].id}/computer/control`, { action: "release" });
+    expect(JSON.stringify((await dump()).prompt)).toContain("OpenMausBot computer control update");
+    await idle(bots[0].id);
+    const state = await api("GET", "/api/bots?messages=50");
+    const roomMessages = state.groups.find((g: any) => g.id === group.id).messages;
+    expect(roomMessages.filter((m: any) => m.computerControl)).toMatchObject([
+      { from: { botId: bots[0].id }, computerControl: { type: "returned" } },
+    ]);
+    expect(state.bots.find((b: any) => b.id === bots[0].id).messages.filter((m: any) => m.computerControl)).toHaveLength(0);
+  });
+
+  it("keeps separate VM targets and non-VM computers independent", async () => {
+    const { bots } = await room();
+    vmState({ noContainers: true });
+    await api("PATCH", "/api/config", { localVm: { mode: "per-bot", maxInstances: 2 } });
+    try {
+      await api("POST", `/api/bots/${bots[0].id}/computer/control`, { action: "take" });
+      expect(await api("GET", `/api/bots/${bots[1].id}/computer/control`)).toMatchObject({ held: false });
+      await api("POST", `/api/bots/${bots[1].id}/computer/control`, { action: "release" });
+      expect(await api("GET", `/api/bots/${bots[0].id}/computer/control`)).toMatchObject({ held: true });
+      expect(existsSync(dumpFile)).toBe(false);
+      writeFileSync(finishFile, "finish");
+      await api("POST", `/api/bots/${bots[0].id}/computer/control`, { action: "release" });
+      await dump(); await idle(bots[0].id);
+      await api("PATCH", `/api/bots/${bots[1].id}`, { computer: "off" });
+      await api("POST", `/api/bots/${bots[1].id}/computer/control`, { action: "take" });
+      expect(await api("GET", `/api/bots/${bots[0].id}/computer/control`)).toMatchObject({ held: false });
+      await api("POST", `/api/bots/${bots[1].id}/computer/control`, { action: "release" });
+      await idle(bots[1].id);
+    } finally {
+      await api("PATCH", "/api/config", { localVm: { mode: "shared", maxInstances: 2 } });
+      vmState();
+    }
+  });
+
   it("runs direct and room chats together, claiming and queueing only computer calls", async () => {
     const { bots, group } = await room();
     await api("POST", `/api/bots/${bots[1].id}/messages`, { text: "Keep chatting." });

@@ -18,6 +18,10 @@ describe("roomActivityVisible", () => {
     expect(roomActivityVisible(chip({}), true)).toBe(true);
   });
 
+  it("shows a control-return event with tool calls hidden", () => {
+    expect(roomActivityVisible(chip({ computerControl: { type: "returned" } }), false)).toBe(true);
+  });
+
   it("always shows a failure", () => {
     expect(roomActivityVisible(chip({ tool: { name: "Ran a command", ok: false } }), false)).toBe(true);
     expect(roomActivityVisible(chip({ tool: { name: "error: engine missing" } }), false)).toBe(true);

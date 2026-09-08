@@ -2197,6 +2197,12 @@ describe("harness HTTP API", () => {
       expect((await api("POST", "/api/computers/boxes/bx_23456789/sleep", {})).status).toBe(409);
       expect((await api("POST", "/api/computers/boxes/bx_23456789/delete", { confirmName: managedName })).status).toBe(409);
       expect((await api("POST", `/api/bots/${bot.id}/computer/control`, { action: "release" })).status).toBe(200);
+      // Hand-back starts a continuation. This fixture intentionally hangs
+      // provider turns; stop it before testing idle-only lifecycle actions.
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, {})).status).toBe(200);
+      await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots
+        .find((candidate: { id: string }) => candidate.id === bot.id)?.busy === true,
+      { timeout: 10_000 }).toBe(false);
 
       const noJson = await fetch(`${BASE}/api/computers/boxes/bx_23456789/sleep`, { method: "POST" });
       expect(noJson.status).toBe(415);

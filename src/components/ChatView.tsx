@@ -779,7 +779,7 @@ const MessagesList = memo(function MessagesList({
                   />
                 );
               }
-              if (!showToolCalls && !m.comm) return null;
+              if (!showToolCalls && !m.comm && !m.computerControl) return null;
               return <ActivityChip message={m} />;
             }
             case "screen":

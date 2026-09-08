@@ -13,6 +13,12 @@ const running = (name: string): Message =>
 const text = (body: string): Message => ({ id: `m${++seq}`, at: seq, role: "bot", kind: "text", text: body });
 
 describe("groupActivityRuns", () => {
+  it("keeps a control-return event out of folded tool runs", () => {
+    const event: Message = { ...tool("Computer control returned"), computerControl: { type: "returned" } };
+    expect(groupTranscript([tool("Read"), event, tool("Click")]).map(item => item.kind))
+      .toEqual(["message", "message", "message"]);
+  });
+
   it("folds consecutive tool steps into one run", () => {
     const items = groupActivityRuns([tool("Edit"), tool("Bash"), tool("Edit")]);
     expect(items).toHaveLength(1);

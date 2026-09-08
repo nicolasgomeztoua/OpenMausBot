@@ -8,6 +8,6 @@ import type { Message } from "@/state/store";
 export function roomActivityVisible(message: Message, showToolCalls: boolean): boolean {
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return false;
-  if (message.comm) return true;
+  if (message.comm || message.computerControl) return true;
   return tool.ok === false || tool.name.startsWith("error:") || showToolCalls;
 }
