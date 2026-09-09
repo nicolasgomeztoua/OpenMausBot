@@ -54,7 +54,7 @@ const IMAGE_MIMES: Record<string, string> = {
 
 /** Useful document and audio formats accepted by the upload endpoint.
  * Generic archives, binaries, HTML, SVG, and executable/script mimes stay
- * out. Office/OpenDocument packages are allowed because they are documents,
+ * out. Office/OpenDocument and EPUB packages are allowed because they are documents,
  * despite using ZIP internally. The claimed mime determines the extension;
  * an attacker-controlled filename never does. */
 const FILE_MIMES: Readonly<Record<string, string>> = {
@@ -76,6 +76,7 @@ const FILE_MIMES: Readonly<Record<string, string>> = {
   "text/tab-separated-values": ".tsv",
   "application/json": ".json",
   "application/pdf": ".pdf",
+  "application/epub+zip": ".epub",
   "application/rtf": ".rtf",
   "text/rtf": ".rtf",
   "application/msword": ".doc",
