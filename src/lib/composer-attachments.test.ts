@@ -498,6 +498,27 @@ describe("private document intake", () => {
     expect(documentMime({ name: "archive.zip", type: "application/zip" })).toBeNull();
   });
 
+  it.each([
+    ["Book.epub", "application/epub+zip"],
+    ["Book.EPUB", ""],
+    ["Book.epub", "application/octet-stream"],
+    ["Book.epub", "application/zip"],
+  ])("uploads %s with browser type '%s' as an EPUB", async (name, type) => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      path: "/private/attachments/123.epub", name: "Book.epub", bytes: 4,
+    }), { status: 201, headers: { "content-type": "application/json" } }));
+    try {
+      const file = new File([new Uint8Array([80, 75, 3, 4])], name, { type });
+      await expect(fileAttachmentFromFile(file)).resolves.toMatchObject({
+        kind: "file", path: "/private/attachments/123.epub", name: "Book.epub", size: 4,
+      });
+      expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/files\?/),
+        expect.objectContaining({ method: "POST", body: file, headers: { "content-type": "application/epub+zip" } }));
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   it("uses the server path and safe name returned by the private store", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       path: "/private/attachments/123.pdf",

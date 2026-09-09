@@ -247,6 +247,7 @@ describe("shared files", () => {
   it("allows useful document mimes but not executables, archives, or active markup", () => {
     expect(extensionForFileMime("text/plain; charset=utf-8")).toBe(".txt");
     expect(extensionForFileMime("application/pdf")).toBe(".pdf");
+    expect(extensionForFileMime("Application/EPUB+ZIP")).toBe(".epub");
     expect(extensionForFileMime("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe(".docx");
     expect(extensionForFileMime("application/zip")).toBeNull();
     expect(extensionForFileMime("application/x-msdownload")).toBeNull();
@@ -298,6 +299,22 @@ describe("shared files", () => {
     expect(readFileSync(first.path)).toEqual(bytes);
     if (process.platform !== "win32") expect(statSync(first.path).mode & 0o777).toBe(0o600);
     expect(readdirSync(ATTACHMENTS_DIR)).toEqual([`${UPLOAD_A}${extension}`]);
+  });
+
+  it("preserves EPUB bytes and its canonical extension across upload retries", async () => {
+    const bytes = Buffer.from([80, 75, 3, 4, 0, 255, 128, 1]);
+    const chunks = async function* () { yield bytes.subarray(0, 3); yield bytes.subarray(3); };
+    const saved = await saveFile(chunks(), "Reading list.EPUB", "application/epub+zip", { uploadId: UPLOAD_A });
+    const retry = await saveFile(chunks(), "Reading list.EPUB", "application/epub+zip", { uploadId: UPLOAD_A });
+    expect(saved).toEqual({
+      path: join(ATTACHMENTS_DIR, `${UPLOAD_A}.epub`),
+      name: "Reading list.epub",
+      mime: "application/epub+zip",
+      bytes: bytes.length,
+    });
+    expect(retry).toEqual(saved);
+    expect(readFileSync(saved.path)).toEqual(bytes);
+    expect(readdirSync(ATTACHMENTS_DIR)).toEqual([`${UPLOAD_A}.epub`]);
   });
 
   it("rejects empty and oversized streams without leaving partial files", async () => {
